@@ -63,7 +63,7 @@ for x in kt[1:-1]:
 ax.axhline(0, **ps.REFERENCE_LINE)
 ax.plot([0], [0.0], "o", color=ps.CATEGORICAL[1], ms=5, clip_on=False, zorder=3)
 ax.plot([0], [3.0], "o", color=ps.CATEGORICAL[0], ms=5, clip_on=False, zorder=3)
-ps.gap_arrow(ax, 0.0, 3.0, y=0.15, vertical=True, text_fmt="{:.2f} eV (direct)")
+ps.gap_arrow(ax, 0.0, 3.0, y=0.15, vertical=True, text_fmt="{:.2f} eV\n(direct)")
 ax.set_xlim(0, 3)
 ax.set_xticks(kt, kl)
 ax.xaxis.set_minor_locator(ps.mpl.ticker.NullLocator())
@@ -149,7 +149,7 @@ xx = np.linspace(0.9, 3.45, 50)
 ax.plot(xx, slope * xx + icpt, color=reg.color("Linear fit", "series"), lw=1.2, ls="--", label="Linear fit")
 ax.plot(invT, logD, "o", color=reg.color("MD", "series"), mfc="white", label="MD")
 ax.plot([1000 / 300], [slope * 1000 / 300 + icpt], "D", color=reg.color("MD", "series"), label="Extrapolated, 300 K")
-ax.text(0.05, 0.08, rf"$E_{{\rm a}}$ = {ea:.2f} ± {ea_err:.2f} eV", transform=ax.transAxes)
+ps.place_text(ax, rf"$E_{{\rm a}}$ = {ea:.2f} ± {ea_err:.2f} eV", prefer="bottom")
 ax.set_xlim(0.9, 3.5)
 ps.nice_limits(ax, -3.9, data_min=-7.6, start_at_zero=False, headroom=0.0)
 ax.set_xlabel(r"1000/$T$ (K$^{\rm {-}1}$)")
@@ -186,13 +186,64 @@ xs = np.arange(len(names))
 ax.bar(xs, vals, width=0.6, color=[reg.color(n, "structure") for n in names], edgecolor="0.2", lw=0.8,
        yerr=err, capsize=3, error_kw=dict(lw=1.0))
 for xi, v, er in zip(xs, vals, err):
-    ax.text(xi, v + er + 0.01, f"{v:.2f}", ha="center", va="bottom")
+    ax.annotate(f"{v:.2f}", xy=(xi, v + er), xytext=(0, 3), textcoords="offset points",
+                ha="center", va="bottom")
 ax.set_xticks(xs, names)
 ax.xaxis.set_minor_locator(ps.mpl.ticker.NullLocator())
 ax.set_xlim(-0.6, len(names) - 0.4)
 ps.nice_limits(ax, (vals + err).max(), headroom=0.2)
 ax.set_ylabel("Barrier (eV)")
 ps.save(fig, "08_bars_synthetic_data", out)
+
+# ---------------------------------------------------------------- profile across an interface
+# two factors (interface x method): color for one, marker + line style for the
+# other, explained by ps.factor_legend; region names placed by ps.place_text
+z = np.arange(-11.5, 15, 2.5)
+rng = np.random.default_rng(1)
+c1, c2 = reg.color("Interface 1", "structure"), reg.color("Interface 2", "structure")
+fig, ax = ps.new_figure()
+ax.axvspan(-15, 0, color="0.93", zorder=0)
+ax.axvline(0, **ps.REFERENCE_LINE)
+ax.axhline(1, **ps.REFERENCE_LINE)
+for c, base in ((c1, 1.05), (c2, 0.85)):
+    for mk, ls in (("o", "-"), ("s", "--")):
+        y = base + 0.25 * np.tanh((z - 2) / 3) - 0.35 * np.exp(-(z - 1) ** 2 / 6) \
+            + rng.normal(0, 0.03, z.size)
+        ax.fill_between(z, y - 0.06, y + 0.06, color=c, alpha=0.15, lw=0)
+        ax.plot(z, y, ls=ls, marker=mk, color=c, mfc="white")
+ax.set_xlim(-15, 16)
+ps.nice_limits(ax, 1.45)
+ps.place_text(ax, "Crystal", x_range=(-15, 0))
+ps.place_text(ax, "Glass", x_range=(0, 16))
+h, l = ps.factor_legend({"Interface 1": c1, "Interface 2": c2},
+                        {"MACE": dict(marker="o", ls="-"), "GRACE": dict(marker="s", ls="--")})
+ps.place_legend(ax, handles=h, labels=l, ncols=(2, 1))
+ax.set_xlabel(r"$\zeta$ (Å)")
+ax.set_ylabel(r"$D_z$ / min($D_{\rm cryst}$, $D_{\rm glass}$)")
+ps.save(fig, "09_interface_profile_synthetic_data", out)
+
+# ---------------------------------------------------------------- Li density map from MD
+# histogram with 0.1 Å bins, Gaussian smoothing sigma = 0.2 Å (periodic cell)
+Lx, Ly, dz, n_frames = 16.0, 18.5, 3.0, 200
+sites = np.array([[x, y] for x in np.arange(0.5, 16, 4.0) for y in np.arange(1.0, 18.5, 3.1)])
+sites = np.vstack([sites, sites + [3.4, 0.6]])
+pos = sites[rng.integers(len(sites), size=n_frames * 24)] + rng.normal(0, 0.35, (n_frames * 24, 2))
+pos[::7] = rng.uniform([0, 0], [Lx, Ly], (len(pos[::7]), 2))
+pos %= [Lx, Ly]
+bin_A, sigma_A = 0.1, 0.2
+nx, ny = round(Lx / bin_A), round(Ly / bin_A)
+H, _, _ = np.histogram2d(pos[:, 0], pos[:, 1], bins=(nx, ny), range=((0, Lx), (0, Ly)))
+rho = ps.smooth_density(H, sigma_A / bin_A) / (n_frames * (Lx / nx) * (Ly / ny) * dz) * 1000
+fig, ax = ps.new_figure(colorbar=True)
+im = ax.imshow(rho.T, origin="lower", extent=(0, Lx, 0, Ly), cmap=ps.sequential_cmap(),
+               interpolation="bilinear", vmin=0, vmax=250)
+ax.set_aspect("equal")
+ax.xaxis.set_major_locator(ps.mpl.ticker.MultipleLocator(5))
+ax.yaxis.set_major_locator(ps.mpl.ticker.MultipleLocator(5))
+ax.set_xlabel(r"$x$ (Å)")
+ax.set_ylabel(r"$y$ (Å)")
+ps.add_colorbar(fig, ax, im, r"$\rho_{\rm Li}$ (nm$^{\rm {-}3}$)")
+ps.save(fig, "10_Li_density_map_synthetic_data", out)
 
 # ---------------------------------------------------------------- the check must catch this
 fig, ax = ps.new_figure()
@@ -202,3 +253,11 @@ checks = ps.check_figure(fig)
 assert any(c.startswith("FAIL text") for c in checks), "Unicode superscript was not caught"
 ps.plt.close(fig)
 print("self-test: Unicode superscript correctly rejected")
+
+fig, ax = ps.new_figure()
+ax.plot([0, 1], [0, 1], color=reg.color("S"))
+ax.text(0.5, 0.5, "on the curve")
+checks = ps.check_figure(fig)
+assert any(c.startswith("FAIL overlap") for c in checks), "label on a curve was not caught"
+ps.plt.close(fig)
+print("self-test: label on a curve correctly rejected")

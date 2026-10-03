@@ -61,7 +61,7 @@ python3 "$P/.agents/skills/plotting/scripts/init_figure.py" "$P" Test_figure >/d
 python3 "$P/.agents/skills/plotting/examples/demo_all_types.py" "$TMP/demo" > "$TMP/demo.log" 2>&1 \
   || { cat "$TMP/demo.log"; fail "demo_all_types"; }
 grep -q "FAIL" "$TMP/demo.log" && { cat "$TMP/demo.log"; fail "a demo figure failed its checks"; }
-[ "$(ls "$TMP/demo"/*.pdf | wc -l)" -eq 9 ] || fail "expected 9 demo figures"
-ok "init_figure and all nine demo figures"
+[ "$(ls "$TMP/demo"/*.pdf | wc -l)" -eq 11 ] || fail "expected 11 demo figures"
+ok "init_figure and all eleven demo figures"
 
 printf 'smoke test: all passed\n'
