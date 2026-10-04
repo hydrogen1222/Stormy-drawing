@@ -42,8 +42,9 @@ ok "existing harness folder and AGENTS.md note"
 
 # 5. --global with a fake HOME, link mode
 H="$TMP/home"; mkdir -p "$H"
-HOME="$H" CODEX_HOME= sh "$REPO/install.sh" --global --harness claude,codex --mode link >/dev/null
+HOME="$H" CODEX_HOME= sh "$REPO/install.sh" --global --harness claude,codex,agy --mode link >/dev/null
 [ -L "$H/.claude/skills/plotting" ] && [ -f "$H/.codex/skills/plotting/SKILL.md" ] || fail "global link"
+[ -f "$H/.gemini/config/skills/plotting/SKILL.md" ] || fail "global agy"
 ok "global install, link mode"
 
 # 6. --target and --dry-run

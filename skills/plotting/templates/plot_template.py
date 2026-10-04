@@ -22,7 +22,7 @@ ps.apply()
 reg = ps.ColorRegistry()
 
 # ---- data: files in this folder only, never paths into calculation folders
-data = np.loadtxt(HERE / "__DATA_FILE__", comments="#")
+data = np.loadtxt(HERE / "__DATA_FILE__", comments="#", encoding="utf-8")
 x = data[:, 0]          # column 1: __X_MEANING__
 y = data[:, 1]          # column 2: __Y_MEANING__
 

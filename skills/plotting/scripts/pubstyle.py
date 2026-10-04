@@ -25,6 +25,7 @@ import logging
 import math
 import os
 import re
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +38,14 @@ from matplotlib.colors import LinearSegmentedColormap, to_hex, to_rgb  # noqa: E
 from matplotlib.text import Text  # noqa: E402
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
+
+# Windows consoles and pipes often use a legacy code page (e.g. GBK); printing
+# Å, − or ² must not crash the script there.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="backslashreplace")
+    except (AttributeError, ValueError):
+        pass
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
@@ -56,11 +65,15 @@ def _pick_font() -> tuple[str, bool]:
         return FONT, False
     if os.environ.get("PUBSTYLE_ALLOW_STANDIN") == "1" and STANDIN_FONT in names:
         return STANDIN_FONT, True
+    if sys.platform.startswith("linux"):
+        how = ("copy arial.ttf, arialbd.ttf, ariali.ttf, arialbi.ttf to "
+               "~/.local/share/fonts/ and delete matplotlib's font cache")
+    else:
+        how = ("Windows and macOS normally ship Arial; if it was removed, reinstall "
+               "it, then delete matplotlib's font cache")
     raise RuntimeError(
-        "Arial is not installed on this machine. Follow references/setup.md "
-        "(copy arial.ttf, arialbd.ttf, ariali.ttf, arialbi.ttf to "
-        "~/.local/share/fonts/ and delete ~/.cache/matplotlib). "
-        "Do not switch to another font."
+        f"Arial is not installed (or not seen by matplotlib). Follow "
+        f"references/setup.md: {how}. Do not switch to another font."
     )
 
 
@@ -633,7 +646,7 @@ def gap_arrow(ax, x0: float, x1: float, y: float, text_fmt: str = "{:.2f} eV",
 def incar_value(incar_path: str | Path, tag: str):
     """Value of one INCAR tag as written (string), or None if absent."""
     pat = re.compile(rf"^\s*{re.escape(tag)}\s*=\s*([^#!\n]+)", re.I | re.M)
-    m = pat.search(Path(incar_path).read_text(errors="replace"))
+    m = pat.search(Path(incar_path).read_text(encoding="utf-8", errors="replace"))
     return m.group(1).strip() if m else None
 
 

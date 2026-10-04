@@ -18,6 +18,11 @@ from pathlib import Path
 
 SKILL = Path(__file__).resolve().parent.parent
 
+try:  # Windows legacy code pages must not crash on non-ASCII paths
+    sys.stdout.reconfigure(errors="backslashreplace")
+except (AttributeError, ValueError):
+    pass
+
 
 def main() -> int:
     if len(sys.argv) != 3:

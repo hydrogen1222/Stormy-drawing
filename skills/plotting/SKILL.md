@@ -11,6 +11,8 @@ description: Make publication-quality figures for Stormy's computational project
 
 来源：https://github.com/hydrogen1222/Stormy-drawing ，作者 Stormy 与 Claude。
 
+Linux、macOS、Windows 都能用。下文命令里的 `python` 在 Windows 上可能叫 `py`，在 Linux/macOS 上可能叫 `python3`；路径写法以所在系统为准。
+
 ## 什么时候读哪个文件
 
 | 情况 | 打开 |
