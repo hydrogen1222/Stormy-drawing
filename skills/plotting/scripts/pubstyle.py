@@ -47,6 +47,12 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
+# Version of this style module. A project's figures/_style/pubstyle.py must
+# match the skill installed in the project: run
+#   python <skill>/scripts/init_figure.py --update-style <project>
+# before drawing; it replaces an older copy (the old one goes to _style/archive/).
+STYLE_VERSION = "0.4.0"
+
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
 
@@ -94,10 +100,10 @@ MARGINS_CM = {
 # Font sizes in pt, at the canvas size (8 cm wide = printed size of a single
 # panel). Axis titles slightly larger than tick numbers; legend and labels
 # inside the frame the same size as tick numbers, so they never dominate.
-LABEL_PT = 9      # axis titles, colorbar title
-TICK_PT = 8       # tick numbers
-LEGEND_PT = 8     # legend text
-ANNOT_PT = 8      # text inside the frame (region names, values, point labels)
+LABEL_PT = 8      # axis titles, colorbar title
+TICK_PT = 7       # tick numbers
+LEGEND_PT = 7     # legend text
+ANNOT_PT = 7      # text inside the frame (region names, values, point labels)
 DATA_LW = 1.5
 FRAME_LW = 1.2
 MAJOR_LEN = 4.0
@@ -570,10 +576,25 @@ def place_text(ax, s: str, x_range=None, y_range=None, prefer: str = "bottom", *
     return t
 
 
+def _two_lines(s: str) -> str | None:
+    """Split a long label into two lines at " (" or else at the middle space,
+    outside math. 'beta-Li3PS4 (bulk)' -> 'beta-Li3PS4' / '(bulk)'."""
+    if "\n" in s:
+        return None
+    plain = [i for i, ch in enumerate(s) if ch == " " and s[:i].count("$") % 2 == 0]
+    if not plain:
+        return None
+    paren = [i for i in plain if s[i + 1:i + 2] == "("]
+    i = paren[-1] if paren else min(plain, key=lambda k: abs(k - len(s) / 2))
+    return s[:i] + "\n" + s[i + 1:]
+
+
 def label_point(ax, x: float, y: float, s: str, gap_pt: float = 3.0, **kw):
     """Label one data point (e.g. an experimental value) right next to it:
     tries right, left, above, below and the diagonals, takes the first free spot.
-    The label is tied to the point, so it moves with it if the axis limits change."""
+    If a one-line label fits nowhere, tries again with it split into two lines
+    (at " (" when there is one). The label is tied to the point, so it moves with
+    it if the axis limits change."""
     fig = ax.figure
     fig.canvas.draw()
     d = gap_pt + MARKER_SIZE / 2 + DATA_LW / 2
@@ -587,20 +608,26 @@ def label_point(ax, x: float, y: float, s: str, gap_pt: float = 3.0, **kw):
                ((d, -d), "left", "top"), ((-d, -d), "right", "top")]
     best = None
     obs = _obstacles(ax, skip=(t,))
-    for off, ha, va in options:
-        t.set_ha(ha)
-        t.set_va(va)
-        t.xyann = off
-        t.update_positions(r)
-        hard, soft = _assess(ax, t, t.get_window_extent(r), obs=obs)
-        if not hard and not soft:
-            t._pubstyle_placed = "ok"
-            return t
-        if not hard and best is None:
-            best = (off, ha, va)
-    off, ha, va = best or options[0]
+    texts = [s] + ([_two_lines(s)] if _two_lines(s) else [])
+    for text in texts:
+        t.set_text(text)
+        for off, ha, va in options:
+            t.set_ha(ha)
+            t.set_va(va)
+            t.set_multialignment(ha)
+            t.xyann = off
+            t.update_positions(r)
+            hard, soft = _assess(ax, t, t.get_window_extent(r), obs=obs)
+            if not hard and not soft:
+                t._pubstyle_placed = "ok"
+                return t
+            if not hard and best is None:
+                best = (text, off, ha, va)
+    text, off, ha, va = best or (s, *options[0])
+    t.set_text(text)
     t.set_ha(ha)
     t.set_va(va)
+    t.set_multialignment(ha)
     t.xyann = off
     t._pubstyle_placed = "note: crosses a reference line" if best else "FAIL: no free spot"
     return t
@@ -709,6 +736,9 @@ def _check_overlaps(fig, r) -> list[str]:
             elif soft:
                 notes.append(f"NOTE overlap: {name} {soft[0]}; acceptable only if no "
                              "better place exists")
+        if leg is not None and not hasattr(ax, "_pubstyle_legend_job"):
+            out.append("FAIL legend: not placed by ps.place_legend (ax.legend by hand is "
+                       "not allowed); call ps.place_legend(ax, ...) instead")
         if leg is not None and getattr(ax, "_pubstyle_legend", "").startswith("ok") \
                 and "raising" in ax._pubstyle_legend:
             notes.append(f"NOTE legend: {ax._pubstyle_legend}; if the data now look "
@@ -723,6 +753,7 @@ def check_figure(fig) -> list[str]:
     """Return lines 'PASS ...' / 'FAIL ...' / 'NOTE ...'."""
     out = []
     font = _STATE["font"]
+    out.append(f"NOTE style: pubstyle {STYLE_VERSION}")
     out.append(f"{'NOTE' if _STATE['standin'] else 'PASS'} font: "
                + (f"{font} used as a DRAFT stand-in for Arial; redraw on a machine with Arial"
                   if _STATE["standin"] else "Arial"))

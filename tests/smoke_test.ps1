@@ -84,6 +84,15 @@ try {
     if ($log -match "FAIL") { Write-Host $log; Fail "a demo figure failed its checks" }
     if ((Get-ChildItem -LiteralPath $demo -Filter "*.pdf").Count -ne 11) { Fail "expected 11 demo figures" }
     Ok "init_figure and all eleven demo figures"
+
+    # 7. an outdated project style copy is replaced and archived
+    $styleFile = P @($P1, "figures", "_style", "pubstyle.py")
+    Set-Content -LiteralPath $styleFile -Value "# old copy without STYLE_VERSION"
+    $out = & $Py (P @($skill, "scripts", "init_figure.py")) "--update-style" $P1 | Out-String
+    if ($out -notmatch "UPDATED") { Fail "update-style" }
+    if ((Get-Content -Raw $styleFile) -notmatch "(?m)^STYLE_VERSION") { Fail "update-style: not replaced" }
+    if (-not (Get-ChildItem (P @($P1, "figures", "_style", "archive")) -Filter "pubstyle_unversioned_*.py")) { Fail "update-style: no archive" }
+    Ok "--update-style replaces and archives an old style copy"
 } finally {
     if (Test-Path -LiteralPath $Tmp) { Remove-Item -LiteralPath $Tmp -Recurse -Force }
 }

@@ -261,3 +261,12 @@ checks = ps.check_figure(fig)
 assert any(c.startswith("FAIL overlap") for c in checks), "label on a curve was not caught"
 ps.plt.close(fig)
 print("self-test: label on a curve correctly rejected")
+
+fig, ax = ps.new_figure()
+ax.plot([0, 1], [0, 1], color=reg.color("S"), label="S")
+ax.legend(loc="lower right")
+ax._pubstyle_legend = "ok (upper right, 1 column)"      # trying to fake a pass
+checks = ps.check_figure(fig)
+assert any(c.startswith("FAIL legend") for c in checks), "hand-made legend was not caught"
+ps.plt.close(fig)
+print("self-test: hand-made legend correctly rejected")
