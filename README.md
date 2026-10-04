@@ -18,7 +18,7 @@
 skills/plotting/
   SKILL.md                    skill 正文（中文）：目录结构、画图和重画的步骤、全部样式规则、自查清单
   scripts/pubstyle.py         样式模块：样式、三种固定画布、坐标轴取整、图例避让、颜色登记、检查和保存
-  scripts/init_figure.py      在项目里新建一个图文件夹
+  scripts/init_figure.py      在项目里新建一个图文件夹；--update-style 同步项目的样式文件
   templates/                  plot.py 和 README.md 模板
   references/figure-types.md  态密度、能带、能垒、径向分布函数、均方位移、阿伦尼乌斯图、二维色图、柱状图的约定
   references/setup.md         安装 Arial 字体和 Python 环境
@@ -75,6 +75,8 @@ Windows 上默认复制，不需要管理员权限，也不需要打开"开发�
 常用选项：`--agents-md` 在项目的 `AGENTS.md` 里加一段说明，让不会自动发现 skill 的 agent 也知道画图要读它；`--mode link` 用链接代替复制，`git pull` 后所有安装同时更新；`--force` 覆盖已有安装；`--dry-run` 只显示要做什么。完整说明见 `./install.sh --help`。
 
 装好后重启或刷新 agent，让它重新读取 skill。
+
+**更新**：`git pull` 之后，在每个项目里用 `--force`（Windows 用 `-Force`）重装，再运行 `python .agents/skills/plotting/scripts/init_figure.py --update-style .` 把项目的 `figures/_style/pubstyle.py` 换成新版（旧的自动存进 `figures/_style/archive/`），然后重画项目里的图。
 
 ## 第一次在某台机器上画图
 

@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
-"""Create a new figure folder inside a project.
+"""Create a new figure folder inside a project, or bring the project's style
+module up to date with this skill.
 
     python init_figure.py <project_root> <descriptive_english_name>
+    python init_figure.py --update-style <project_root>
 
 Example:
     python init_figure.py ~/projects/Li6PS5Cl_doping Li6PS5Cl_bulk_DOS
     -> figures/004_Li6PS5Cl_bulk_DOS/ with plot.py, README.md, archive/
 
 On first use it also creates figures/_style/ with this project's copy of
-pubstyle.py and an empty color registry colors.json. Existing files are never
-overwritten. Standard library only.
+pubstyle.py and an empty color registry colors.json. Both commands also check
+that copy: if it is older than this skill's pubstyle.py (or has no version at
+all), the old copy moves to figures/_style/archive/ and the new one replaces
+it; figures drawn with the old copy must then be redrawn. colors.json is never
+touched. Standard library only.
 """
+import datetime
 import re
 import shutil
 import sys
@@ -24,7 +30,44 @@ except (AttributeError, ValueError):
     pass
 
 
+def style_version(path: Path) -> tuple[int, ...]:
+    """STYLE_VERSION of a pubstyle.py; (0, 0, 0) for copies made before versions existed."""
+    m = re.search(r'^STYLE_VERSION = "([\d.]+)"', path.read_text(encoding="utf-8"), re.M)
+    return tuple(int(x) for x in m.group(1).split(".")) if m else (0, 0, 0)
+
+
+def sync_style(style: Path) -> None:
+    """Create or update figures/_style/pubstyle.py from this skill."""
+    src = SKILL / "scripts" / "pubstyle.py"
+    dst = style / "pubstyle.py"
+    style.mkdir(parents=True, exist_ok=True)
+    if not dst.exists():
+        shutil.copy2(src, dst)
+        print(f"created {dst}")
+        return
+    new, old = style_version(src), style_version(dst)
+    v = lambda t: ".".join(map(str, t)) if any(t) else "no version (before 0.4.0)"  # noqa: E731
+    if old == new:
+        print(f"style up to date: {dst} ({v(new)})")
+    elif old > new:
+        print(f"WARNING: {dst} ({v(old)}) is newer than this skill ({v(new)}); "
+              "left unchanged. Update the installed skill instead.")
+    else:
+        archive = style / "archive"
+        archive.mkdir(exist_ok=True)
+        label = ".".join(map(str, old)) if any(old) else "unversioned"
+        keep = archive / f"pubstyle_{label}_{datetime.date.today()}.py"
+        shutil.move(str(dst), str(keep))
+        shutil.copy2(src, dst)
+        print(f"UPDATED {dst}: {v(old)} -> {v(new)} (old copy: {keep})")
+        print("Figures drawn with the old style must be redrawn: run plot.py in each "
+              "figure folder and check the new *_checks.txt.")
+
+
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--update-style":
+        sync_style(Path(sys.argv[2]).expanduser().resolve() / "figures" / "_style")
+        return 0
     if len(sys.argv) != 3:
         print(__doc__)
         return 2
@@ -39,10 +82,7 @@ def main() -> int:
 
     figures = root / "figures"
     style = figures / "_style"
-    style.mkdir(parents=True, exist_ok=True)
-    if not (style / "pubstyle.py").exists():
-        shutil.copy2(SKILL / "scripts" / "pubstyle.py", style / "pubstyle.py")
-        print(f"created {style / 'pubstyle.py'}")
+    sync_style(style)
     if not (style / "colors.json").exists():
         (style / "colors.json").write_text("{}\n", encoding="utf-8")
         print(f"created {style / 'colors.json'} (empty color registry)")

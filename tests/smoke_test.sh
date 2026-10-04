@@ -65,4 +65,12 @@ grep -q "FAIL" "$TMP/demo.log" && { cat "$TMP/demo.log"; fail "a demo figure fai
 [ "$(ls "$TMP/demo"/*.pdf | wc -l)" -eq 11 ] || fail "expected 11 demo figures"
 ok "init_figure and all eleven demo figures"
 
+# 8. an outdated project style copy is replaced and archived
+printf '# old copy without STYLE_VERSION\n' > "$P/figures/_style/pubstyle.py"
+python3 "$P/.agents/skills/plotting/scripts/init_figure.py" --update-style "$P" | grep -q UPDATED || fail "update-style"
+grep -q '^STYLE_VERSION' "$P/figures/_style/pubstyle.py" || fail "update-style: not replaced"
+ls "$P/figures/_style/archive/"pubstyle_unversioned_*.py >/dev/null 2>&1 || fail "update-style: no archive"
+python3 "$P/.agents/skills/plotting/scripts/init_figure.py" --update-style "$P" | grep -q "up to date" || fail "update-style rerun"
+ok "--update-style replaces and archives an old style copy"
+
 printf 'smoke test: all passed\n'
