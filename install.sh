@@ -5,13 +5,14 @@ set -eu
 usage() {
   cat <<'USAGE'
 Usage: /path/to/Stormy-drawing/install.sh [options]
+(Linux and macOS. On Windows use install.ps1 in PowerShell.)
 
 Install the `plotting` skill for AI coding agents.
 
   Default (run inside a project directory)
       Copies the skill to ./.agents/skills/plotting and makes it visible to every
       harness in --harness (default: all):
-        codex / kimi / pi / opencode / generic : .agents/skills/
+        codex / kimi / pi / opencode / agy / generic : .agents/skills/
         claude (Claude Code)                   : .claude/skills/
         qwen (Qwen Code)                       : .qwen/skills/
         zcode (ZCode)                          : .zcode/skills/ (project path unverified)
@@ -24,11 +25,12 @@ Install the `plotting` skill for AI coding agents.
       Installs into the user-level skill directory of each harness instead:
         claude ~/.claude/skills   codex $CODEX_HOME/skills (~/.codex/skills)
         qwen ~/.qwen/skills       zcode ~/.zcode/skills
+        agy (Antigravity) ~/.gemini/config/skills
         kimi / pi / opencode / generic ~/.agents/skills
 
 Options:
   --harness LIST   Comma-separated: claude, codex, qwen, zcode, kimi, pi, opencode,
-                   generic, or "all" (default).
+                   agy, generic, or "all" (default).
   --global         Install for the current user instead of the current project.
   --target DIR     Install into DIR/plotting only (any other agent's skill folder).
   --mode copy|link copy (default): a fixed copy, so every project keeps the version
@@ -79,7 +81,7 @@ done
 case "$MODE" in copy|link) ;; *) die "--mode must be copy or link" ;; esac
 [ "$GLOBAL" -eq 1 ] && [ -n "$TARGET" ] && die "use either --global or --target, not both"
 
-ALL_HARNESSES="claude codex qwen zcode kimi pi opencode generic"
+ALL_HARNESSES="claude codex qwen zcode kimi pi opencode agy generic"
 if [ "$HARNESS" = "all" ]; then
   HARNESS_LIST="$ALL_HARNESSES"
 else
@@ -135,6 +137,7 @@ if [ "$GLOBAL" -eq 1 ]; then
       codex) d="${CODEX_HOME:-$HOME/.codex}/skills" ;;
       qwen) d="$HOME/.qwen/skills" ;;
       zcode) d="$HOME/.zcode/skills" ;;
+      agy) d="$HOME/.gemini/config/skills" ;;
       *) d="$HOME/.agents/skills" ;;
     esac
     case "$DONE" in *" $d "*) continue ;; esac
