@@ -55,11 +55,11 @@ k = np.linspace(0, 3, 300)
 kt, kl = [0, 1, 1.8, 3], [r"$\rm\Gamma$", "X", "W|K", r"$\rm\Gamma$"]
 fig, ax = ps.new_figure("tall")
 for n in range(4):
-    ax.plot(k, -0.9 * n - 0.6 * np.sin(np.pi * k * (n + 1) / 3) ** 2, color="0.15", lw=1.2)
+    ax.plot(k, -0.9 * n - 0.6 * np.sin(np.pi * k * (n + 1) / 3) ** 2, color="0.15", lw=ps.DATA_LW)
 for n in range(3):
-    ax.plot(k, 3.0 + 0.8 * n + 0.7 * np.sin(np.pi * k / 3 * (n + 1)) ** 2, color="0.15", lw=1.2)
+    ax.plot(k, 3.0 + 0.8 * n + 0.7 * np.sin(np.pi * k / 3 * (n + 1)) ** 2, color="0.15", lw=ps.DATA_LW)
 for x in kt[1:-1]:
-    ax.axvline(x, color="0.6", lw=0.8)
+    ax.axvline(x, color="0.6", lw=ps.FRAME_LW)
 ax.axhline(0, **ps.REFERENCE_LINE)
 ax.plot([0], [0.0], "o", color=ps.CATEGORICAL[1], ms=5, clip_on=False, zorder=3)
 ax.plot([0], [3.0], "o", color=ps.CATEGORICAL[0], ms=5, clip_on=False, zorder=3)
@@ -146,7 +146,7 @@ ea = -slope * 8.617e-5 * 1000 * np.log(10)
 ea_err = np.sqrt(cov[0, 0]) * 8.617e-5 * 1000 * np.log(10)
 fig, ax = ps.new_figure(top_axis=True)
 xx = np.linspace(0.9, 3.45, 50)
-ax.plot(xx, slope * xx + icpt, color=reg.color("Linear fit", "series"), lw=1.2, ls="--", label="Linear fit")
+ax.plot(xx, slope * xx + icpt, color=reg.color("Linear fit", "series"), lw=ps.DATA_LW, ls="--", label="Linear fit")
 ax.plot(invT, logD, "o", color=reg.color("MD", "series"), mfc="white", label="MD")
 ax.plot([1000 / 300], [slope * 1000 / 300 + icpt], "D", color=reg.color("MD", "series"), label="Extrapolated, 300 K")
 ps.place_text(ax, rf"$E_{{\rm a}}$ = {ea:.2f} ± {ea_err:.2f} eV", prefer="bottom")
@@ -183,8 +183,8 @@ vals = np.array([0.31, 0.24, 0.38])
 err = np.array([0.02, 0.03, 0.02])
 fig, ax = ps.new_figure()
 xs = np.arange(len(names))
-ax.bar(xs, vals, width=0.6, color=[reg.color(n, "structure") for n in names], edgecolor="0.2", lw=0.8,
-       yerr=err, capsize=3, error_kw=dict(lw=1.0))
+ax.bar(xs, vals, width=0.6, color=[reg.color(n, "structure") for n in names], edgecolor="0.2", lw=ps.FRAME_LW,
+       yerr=err, capsize=3, error_kw=dict(lw=ps.DATA_LW))
 for xi, v, er in zip(xs, vals, err):
     ax.annotate(f"{v:.2f}", xy=(xi, v + er), xytext=(0, 3), textcoords="offset points",
                 ha="center", va="bottom")

@@ -14,12 +14,13 @@ Typical plot.py:
     ps.nice_limits(ax, y.max())               # axis top: max + 10 %, rounded up
     ps.place_text(ax, "Glass", x_range=(0, 15))  # region name on a free spot
     ps.place_legend(ax)                       # top right unless it covers data or text
-    ps.save(fig, "003_Li6PS5Cl_bulk_DOS")     # PNG x2, PDF, SVG + checks
+    ps.save(fig, "003_Li6PS5Cl_bulk_DOS")     # PNG x2, PDF, SVG, TIFF + checks
 
 Everything here follows the decisions recorded in the skill's SKILL.md.
 """
 from __future__ import annotations
 
+import io
 import json
 import logging
 import math
@@ -51,7 +52,7 @@ for _stream in (sys.stdout, sys.stderr):
 # match the skill installed in the project: run
 #   python <skill>/scripts/init_figure.py --update-style <project>
 # before drawing; it replaces an older copy (the old one goes to _style/archive/).
-STYLE_VERSION = "0.4.0"
+STYLE_VERSION = "0.5.0"
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
@@ -100,15 +101,15 @@ MARGINS_CM = {
 # Font sizes in pt, at the canvas size (8 cm wide = printed size of a single
 # panel). Axis titles slightly larger than tick numbers; legend and labels
 # inside the frame the same size as tick numbers, so they never dominate.
-LABEL_PT = 8      # axis titles, colorbar title
-TICK_PT = 7       # tick numbers
-LEGEND_PT = 7     # legend text
-ANNOT_PT = 7      # text inside the frame (region names, values, point labels)
-DATA_LW = 1.5
-FRAME_LW = 1.2
-MAJOR_LEN = 4.0
-MINOR_LEN = 2.2
-MARKER_SIZE = 6.0
+LABEL_PT = 7      # axis titles, colorbar title
+TICK_PT = 6       # tick numbers
+LEGEND_PT = 6     # legend text
+ANNOT_PT = 6      # text inside the frame (region names, values, point labels)
+DATA_LW = 1.0     # every line 1.0 pt: Nature allows at most 1 pt, Nat. Commun. at least 1 pt
+FRAME_LW = 1.0
+MAJOR_LEN = 3.2
+MINOR_LEN = 1.8
+MARKER_SIZE = 4.5
 
 # ---------------------------------------------------------------- colors
 
@@ -220,7 +221,7 @@ def apply() -> None:
         "xtick.major.size": MAJOR_LEN, "ytick.major.size": MAJOR_LEN,
         "xtick.minor.size": MINOR_LEN, "ytick.minor.size": MINOR_LEN,
         "xtick.major.width": FRAME_LW, "ytick.major.width": FRAME_LW,
-        "xtick.minor.width": FRAME_LW * 0.8, "ytick.minor.width": FRAME_LW * 0.8,
+        "xtick.minor.width": FRAME_LW, "ytick.minor.width": FRAME_LW,
         "xtick.minor.visible": True, "ytick.minor.visible": True,
         "lines.linewidth": DATA_LW, "lines.markersize": MARKER_SIZE,
         "lines.markeredgewidth": DATA_LW,
@@ -661,11 +662,11 @@ def gap_arrow(ax, x0: float, x1: float, y: float, text_fmt: str = "{:.2f} eV",
     gap = abs(x1 - x0)
     if vertical:
         ax.annotate("", xy=(y, x1), xytext=(y, x0),
-                    arrowprops=dict(arrowstyle="<->", lw=1.2, color="0.15", shrinkA=0, shrinkB=0))
+                    arrowprops=dict(arrowstyle="<->", lw=DATA_LW, color="0.15", shrinkA=0, shrinkB=0))
         ax.text(y, (x0 + x1) / 2, " " + text_fmt.format(gap), va="center", ha="left")
     else:
         ax.annotate("", xy=(x1, y), xytext=(x0, y),
-                    arrowprops=dict(arrowstyle="<->", lw=1.2, color="0.15", shrinkA=0, shrinkB=0))
+                    arrowprops=dict(arrowstyle="<->", lw=DATA_LW, color="0.15", shrinkA=0, shrinkB=0))
         ax.text((x0 + x1) / 2, y, text_fmt.format(gap), va="bottom", ha="center")
     return gap
 
@@ -816,9 +817,25 @@ def refresh_placements(fig) -> None:
             place_legend(ax, **legend_job)
 
 
+TIFF_DPI = 1200   # journals ask 1000-1200 dpi for raster line art (CCL/Elsevier 1000, ACS 1200)
+
+
+def _save_tiff(fig, path: Path) -> None:
+    """White-background RGB TIFF with lossless LZW compression, for journals
+    that want TIFF instead of (or as well as) the vector PDF."""
+    from PIL import Image
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=TIFF_DPI, facecolor="white")
+    buf.seek(0)
+    with Image.open(buf) as im:
+        im.convert("RGB").save(path, format="TIFF", compression="tiff_lzw",
+                               dpi=(TIFF_DPI, TIFF_DPI))
+
+
 def save(fig, name: str, outdir: str | Path = ".") -> list[str]:
     """Save name.png (white, 600 dpi), name_transparent.png, name.pdf, name.svg,
-    and name_checks.txt. Prints the checks; returns them."""
+    name.tif (white, 1200 dpi, RGB, LZW) and name_checks.txt.
+    Prints the checks; returns them."""
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     refresh_placements(fig)
@@ -827,6 +844,7 @@ def save(fig, name: str, outdir: str | Path = ".") -> list[str]:
     fig.savefig(outdir / f"{name}_transparent.png", dpi=600, transparent=True)
     fig.savefig(outdir / f"{name}.pdf")
     fig.savefig(outdir / f"{name}.svg")
+    _save_tiff(fig, outdir / f"{name}.tif")
     (outdir / f"{name}_checks.txt").write_text("\n".join(checks) + "\n", encoding="utf-8")
     plt.close(fig)
     print(f"[{name}]")

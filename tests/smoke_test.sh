@@ -63,6 +63,15 @@ python3 "$P/.agents/skills/plotting/examples/demo_all_types.py" "$TMP/demo" > "$
   || { cat "$TMP/demo.log"; fail "demo_all_types"; }
 grep -q "FAIL" "$TMP/demo.log" && { cat "$TMP/demo.log"; fail "a demo figure failed its checks"; }
 [ "$(ls "$TMP/demo"/*.pdf | wc -l)" -eq 11 ] || fail "expected 11 demo figures"
+[ "$(ls "$TMP/demo"/*.tif | wc -l)" -eq 11 ] || fail "expected 11 TIFF files"
+python3 -c "
+import sys, glob
+from PIL import Image
+for f in glob.glob(sys.argv[1] + '/*.tif'):
+    im = Image.open(f)
+    assert im.mode == 'RGB' and im.info.get('compression') == 'tiff_lzw', f
+    assert round(im.info['dpi'][0]) == 1200, f
+" "$TMP/demo" || fail "TIFF files are not RGB, LZW, 1200 dpi"
 ok "init_figure and all eleven demo figures"
 
 # 8. an outdated project style copy is replaced and archived
