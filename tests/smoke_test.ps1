@@ -83,6 +83,10 @@ try {
     if ($LASTEXITCODE -ne 0) { Write-Host $log; Fail "demo_all_types" }
     if ($log -match "FAIL") { Write-Host $log; Fail "a demo figure failed its checks" }
     if ((Get-ChildItem -LiteralPath $demo -Filter "*.pdf").Count -ne 11) { Fail "expected 11 demo figures" }
+    if ((Get-ChildItem -LiteralPath $demo -Filter "*.tif").Count -ne 11) { Fail "expected 11 TIFF files" }
+    $tifCheck = "import sys, glob`nfrom PIL import Image`nfor f in glob.glob(sys.argv[1] + '/*.tif'):`n    im = Image.open(f)`n    assert im.mode == 'RGB' and im.info.get('compression') == 'tiff_lzw', f`n    assert round(im.info['dpi'][0]) == 1200, f"
+    & $Py -c $tifCheck $demo
+    if ($LASTEXITCODE -ne 0) { Fail "TIFF files are not RGB, LZW, 1200 dpi" }
     Ok "init_figure and all eleven demo figures"
 
     # 7. an outdated project style copy is replaced and archived

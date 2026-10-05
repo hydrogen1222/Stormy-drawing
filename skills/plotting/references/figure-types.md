@@ -22,7 +22,7 @@
 - 零点同态密度（价带顶），纵轴 `r"$E-E_{\rm VBM}$ (eV)"`，零点画水平参考虚线。
 - 高对称路径用 vaspkit 的 303 功能生成（按晶体对称性自动给路径），路径和 KPATH 文件来源写进 README。
 - 高对称点处画灰色细竖线；横轴刻度标签用正确符号：`r"$\rm\Gamma$"`，不能写成 G；路径断开处标成 `"X|U"`。横轴不画次刻度，不写横轴标题。
-- 普通能带全部用一种深色（`"0.15"`），线宽 1.2 磅。价带顶和导带底各画一个小实心圆点（`ps.CATEGORICAL[1]` 蓝、`ps.CATEGORICAL[0]` 红，`clip_on=False`），之间用 `ps.gap_arrow(ax, 0.0, e_cbm, y=k位置, vertical=True, text_fmt="{:.2f} eV\n(direct)")` 标带隙，数值和 direct 分两行，免得文字横跨高对称点竖线（间接带隙写 indirect）。
+- 普通能带全部用一种深色（`"0.15"`），线宽 1.0 磅（`ps.DATA_LW`）。价带顶和导带底各画一个小实心圆点（`ps.CATEGORICAL[1]` 蓝、`ps.CATEGORICAL[0]` 红，`clip_on=False`），之间用 `ps.gap_arrow(ax, 0.0, e_cbm, y=k位置, vertical=True, text_fmt="{:.2f} eV\n(direct)")` 标带隙，数值和 direct 分两行，免得文字横跨高对称点竖线（间接带隙写 indirect）。
 - 能量范围规则同态密度，能带图和窄条用同一个范围。
 - 按元素着色的能带只在讨论成键时画。
 - 计算方法（PBE 还是 HSE06，HSE06 能带用的是哪种做法）写进 README，图上不写。
@@ -89,6 +89,6 @@
 ## 柱状图
 
 - 纵轴**必须从 0 开始**。从中间开始会把小差别放大成大差别。
-- 柱子之间留空隙，柱子用登记文件的颜色（`group="structure"`），可加 0.8 磅深色描边。
+- 柱子之间留空隙，柱子用登记文件的颜色（`group="structure"`），可加 1.0 磅深色描边（`ps.FRAME_LW`）。
 - 柱顶标数值时位数统一。
 - 误差棒带短横帽，线宽 1.0 磅，README 写明误差棒代表标准差还是标准误差。
