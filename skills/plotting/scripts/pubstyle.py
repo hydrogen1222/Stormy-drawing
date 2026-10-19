@@ -52,7 +52,7 @@ for _stream in (sys.stdout, sys.stderr):
 # match the skill installed in the project: run
 #   python <skill>/scripts/init_figure.py --update-style <project>
 # before drawing; it replaces an older copy (the old one goes to _style/archive/).
-STYLE_VERSION = "0.6.0"
+STYLE_VERSION = "0.7.0"
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
@@ -938,6 +938,205 @@ def bands_summary(bands: Bands) -> str:
          f"- Gap on the path: {bands.gap:.3f} eV, {'direct' if bands.direct else 'indirect'}\n")
     if bands.off_path:
         s += "- Note: a band edge lies on the SCF mesh, not on the drawn path\n"
+    return s
+
+
+# ---------------------------------------------------------------- DOS
+#
+# Reads DOSCAR (+ POSCAR/CONTCAR for the element names and counts, EIGENVAL for
+# the band edges). Plain text only, same as read_bands.
+
+class Dos:
+    """Density of states, energies relative to the zero, DOS per formula unit.
+      energy   (n,) eV relative to the zero
+      total    (nspin, n) states/eV/f.u.  (spin down is NOT negated here)
+      elements {symbol: (nspin, n)} summed over that element's atoms, or {}
+      orbitals {symbol: {"s": .., "p": .., "d": ..}} (LORBIT 10/11 only), or {}
+      metal, vbm/cbm (eV, relative to the zero; None for metals), gap,
+      zero_eV (absolute energy of the zero), formula_units, nspin, source
+    """
+
+
+def _atom_symbols(poscar: Path) -> list[str]:
+    lines = poscar.read_text(encoding="utf-8", errors="replace").splitlines()
+    names, counts = lines[5].split(), lines[6].split()
+    if not all(c.isdigit() for c in counts):
+        raise ValueError(f"{poscar.name}: no element names in line 6 (VASP 4 format)")
+    return [n for n, c in zip(names, counts) for _ in range(int(c))]
+
+
+def _group_orbitals(cols: np.ndarray, nspin: int) -> dict[str, np.ndarray]:
+    """cols: (n, ncols-1) partial DOS columns of one atom -> s/p/d/f, each (nspin, n)."""
+    norb = cols.shape[1] // nspin
+    sizes = {1: ["s"], 3: ["s", "p", "d"], 4: ["s", "p", "d", "f"],
+             9: ["s"] + ["p"] * 3 + ["d"] * 5,
+             16: ["s"] + ["p"] * 3 + ["d"] * 5 + ["f"] * 7}.get(norb)
+    if sizes is None:
+        raise ValueError(f"unexpected number of orbital columns: {norb}")
+    out = {}
+    for s in range(nspin):
+        block = cols[:, s::nspin]               # spin up/down alternate in DOSCAR
+        for i, o in enumerate(sizes):
+            out.setdefault(o, np.zeros((nspin, cols.shape[0])))[s] += block[:, i]
+    return out
+
+
+def read_dos(folder: str | Path = ".", formula_units: float | None = None,
+             doscar: str = "DOSCAR", poscar: str = "POSCAR",
+             eigenval: str = "EIGENVAL", outcar: str = "OUTCAR") -> Dos:
+    """Read a DOS calculation from copies of DOSCAR, POSCAR (or CONTCAR) and
+    EIGENVAL in `folder`. formula_units is how many formula units the cell holds
+    (Li6PS5Cl cell with 4 formula units -> 4); it must be given, the DOS is
+    divided by it. Zero: VBM from EIGENVAL for insulators, E-fermi from DOSCAR
+    for metals."""
+    if not formula_units or formula_units <= 0:
+        raise ValueError("formula_units is required (number of formula units in the "
+                         "cell); write the value into the figure README")
+    folder = Path(folder)
+    lines = (folder / doscar).read_text(encoding="utf-8", errors="replace").splitlines()
+    natoms = int(lines[0].split()[0])
+    head = lines[5].split()
+    nedos, efermi = int(head[2]), float(head[3])
+    block = lambda start: np.array(  # noqa: E731
+        [[float(x) for x in l.split()] for l in lines[start:start + nedos]])
+    tot = block(6)
+    energy = tot[:, 0]
+    nspin = 2 if tot.shape[1] in (5,) else 1
+    total = tot[:, 1:1 + nspin].T / formula_units
+
+    p = folder / poscar
+    if not p.exists() and (folder / "CONTCAR").exists():
+        p = folder / "CONTCAR"
+    elements, orbitals = {}, {}
+    if len(lines) >= 6 + (nedos + 1) * (natoms + 1) - 1 and natoms > 0:
+        symbols = _atom_symbols(p)
+        if len(symbols) != natoms:
+            raise ValueError("POSCAR and DOSCAR disagree on the number of atoms")
+        for i, sym in enumerate(symbols):
+            part = block(6 + (nedos + 1) * (i + 1))[:, 1:]
+            grouped = _group_orbitals(part, nspin)
+            tot_atom = sum(grouped.values())
+            elements[sym] = elements.get(sym, 0) + tot_atom / formula_units
+            od = orbitals.setdefault(sym, {})
+            for o, v in grouped.items():
+                od[o] = od.get(o, 0) + v / formula_units
+
+    out = Dos()
+    out.nspin, out.formula_units = nspin, formula_units
+    out.total = total
+    out.elements, out.orbitals = elements, orbitals
+    out.source = f"{doscar}, {p.name}, {eigenval}"
+    ev = folder / eigenval
+    metal, vbm_abs, cbm_abs = True, None, None
+    if ev.exists() and nspin == 1:
+        nelect, _k, _w, eig = _read_eigenval(ev)
+        nocc = int(round(nelect / 2))
+        if 0 < nocc < eig.shape[2]:
+            vbm_abs, cbm_abs = eig[0, :, nocc - 1].max(), eig[0, :, nocc].min()
+            metal = cbm_abs <= vbm_abs
+    elif nspin == 2:
+        raise ValueError("ISPIN=2 DOS: zero must be chosen by hand for now; ask Stormy")
+    out.metal = bool(metal)
+    out.zero_eV = float(efermi) if metal else float(vbm_abs)
+    out.energy = energy - out.zero_eV
+    out.vbm = None if metal else 0.0
+    out.cbm = None if metal else float(cbm_abs - vbm_abs)
+    out.gap = out.cbm
+    return out
+
+
+def dos_energy_range(dos: Dos, above_cbm: float = 3.0, group_gap: float = 1.0):
+    """Default window: from just below the lowest DOS feature that belongs to the
+    valence-band group touching the VBM (features separated by more than
+    group_gap eV of empty DOS start a new group) up to about 3 eV above the CBM,
+    both rounded to whole eV. Metals: 6 eV below and above E_F."""
+    if dos.metal:
+        return -6.0, 6.0
+    t = dos.total.sum(axis=0)
+    occ = dos.energy <= 1e-6
+    on = occ & (t > 0.01 * t[occ].max())
+    e = dos.energy
+    bottom = 0.0
+    for i in np.where(on)[0][::-1]:
+        if e[i] < bottom - group_gap:
+            break
+        bottom = min(bottom, e[i])
+    return float(math.floor(bottom - 0.5)), float(math.ceil(dos.cbm + above_cbm))
+
+
+def plot_dos(ax, dos: Dos, reg: "ColorRegistry", xlim=None, kind="elements",
+             fill: str = "gradient", total: bool = True, mark_gap: bool = True):
+    """Draw a DOS by the skill's rules on a 'standard' canvas: energy on x,
+    total as light grey fill, one line per element (kind="elements"), total only (kind="total") or per
+    orbital of the elements given in `kind` as {"S": ["p"], ...}; gradient fill;
+    gap arrow. Returns (xlim, ymax). Add the legend yourself with
+    ps.place_legend(ax) after any extra labels."""
+    lo, hi = xlim or dos_energy_range(dos)
+    sel = (dos.energy >= lo) & (dos.energy <= hi)
+    e = dos.energy
+    spin_sign = [1.0, -1.0][:dos.nspin]
+    curves = []
+    if kind == "total":
+        pass
+    elif kind == "elements":
+        if not dos.elements:
+            raise ValueError("DOSCAR has no per-atom DOS; run with LORBIT = 11 (or 10)")
+        curves = [(sym, None, v, reg.color(sym)) for sym, v in dos.elements.items()]
+    else:
+        if not dos.orbitals:
+            raise ValueError("DOSCAR has no per-atom DOS; run with LORBIT = 11 (or 10)")
+        for sym, orbs in kind.items():
+            for o in orbs:
+                curves.append((f"{sym} {o}", None, dos.orbitals[sym][o],
+                               reg.color(f"{sym} {o}", "series")))
+    ymax = 0.0
+    if total:
+        for s, sg in enumerate(spin_sign):
+            y = sg * dos.total[s]
+            ax.fill_between(e, y, color="0.85", lw=0, zorder=0.8,
+                            label="Total" if s == 0 else None)
+        ymax = max(ymax, dos.total[:, sel].max())
+    for name, _, v, c in curves:
+        for s, sg in enumerate(spin_sign):
+            y = sg * v[s]
+            if fill == "gradient":
+                gradient_fill(ax, e, y, c)
+            elif fill == "translucent":
+                ax.fill_between(e, y, color=c, alpha=0.3, lw=0, zorder=1)
+            ax.plot(e, y, color=c, label=name if s == 0 else None, zorder=2)
+        ymax = max(ymax, v[:, sel].max())
+    ax.axvline(0, **REFERENCE_LINE)
+    ax.set_xlim(lo, hi)
+    ax.xaxis.set_major_locator(mpl.ticker.MultipleLocator(_nice_step(hi - lo, 7)))
+    if dos.nspin == 2:
+        nice_limits(ax, ymax, start_at_zero=True)
+        top = ax.get_ylim()[1]
+        ax.set_ylim(-top, top)
+    else:
+        nice_limits(ax, ymax)
+    ax.set_xlabel(r"$E-E_{\rm F}$ (eV)" if dos.metal else r"$E-E_{\rm VBM}$ (eV)")
+    ax.set_ylabel("DOS (states/eV/f.u.)")
+    if mark_gap and not dos.metal and dos.gap is not None and dos.cbm <= hi:
+        top = ax.get_ylim()[1]
+        yarrow = 0.12 * top
+        ax.annotate("", xy=(dos.cbm, yarrow), xytext=(0.0, yarrow),
+                    arrowprops=dict(arrowstyle="<->", lw=DATA_LW, color="0.15",
+                                    shrinkA=0, shrinkB=0))
+        place_text(ax, f"{dos.gap:.2f} eV", x_range=(max(lo, -1.5), min(hi, dos.cbm + 1.5)),
+                   y_range=(yarrow, 0.6 * top), prefer="bottom")
+    return (lo, hi), ymax
+
+
+def dos_summary(dos: Dos) -> str:
+    """Lines for the figure README."""
+    s = (f"- Data: {dos.source}\n- DOS divided by {dos.formula_units:g} formula unit(s) "
+         "of the cell; no extra smoothing (broadening is the one used in the VASP run)\n")
+    if dos.metal:
+        s += f"- Metal: zero = E-fermi ({dos.zero_eV:.4f} eV)\n"
+    else:
+        s += (f"- Zero: VBM = {dos.zero_eV:.4f} eV (from EIGENVAL, all k-points)\n"
+              f"- Gap: {dos.gap:.3f} eV (EIGENVAL k-points, not the DOS edge)\n")
+    s += "- Per-atom DOS: " + (", ".join(dos.elements) if dos.elements else "none (LORBIT = 0)") + "\n"
     return s
 
 

@@ -5,6 +5,18 @@
 
 ## 态密度（DOS / PDOS）
 
+- **读数据和画图直接用 `pubstyle.py` 里的函数**，不要自己写（0.7.0 起）：
+  ```python
+  d = ps.read_dos(".", formula_units=4)      # 读 DOSCAR、POSCAR（或 CONTCAR）、EIGENVAL
+  fig, ax = ps.new_figure()
+  ps.plot_dos(ax, d, reg)                    # 默认按元素；只画总态密度用 kind="total"
+  ps.place_legend(ax)                        # 按轨道：kind={"S": ["p"], "P": ["s", "p"]}
+  ps.save(fig, "001_Li6PS5Cl_bulk_DOS")
+  open("README.md", "a").write(ps.dos_summary(d))
+  ```
+  把 `DOSCAR`、`POSCAR`、`EIGENVAL` 复制进图文件夹。`formula_units`（晶胞里有几个化学式单元）**必须自己给**，函数不猜；写进 README。零点：绝缘体取 EIGENVAL 里所有 k 点的价带顶，金属取 DOSCAR 里的费米能级。带隙取自 EIGENVAL，不取态密度边缘。
+- 按元素或按轨道画需要计算时设 `LORBIT = 11`（或 10）；DOSCAR 里没有分波态密度时只能画总的，`plot_dos` 会报错并提示。自旋极化（ISPIN=2）的态密度暂不支持，`read_dos` 会直接报错。
+- 默认能量范围由 `ps.dos_energy_range` 按下面的规则算，`plot_dos(..., xlim=(lo, hi))` 可以覆盖，覆盖时在 README 里写理由。
 - **能量零点**：绝缘体放在价带顶（VBM），从本征值里找（例如 vaspkit 输出的带边信息，或 EIGENVAL/vasprun.xml 中占据态的最高本征值），不用 OUTCAR 里的 E-fermi，因为绝缘体的费米能级在带隙里的位置是随意的。横轴写 `r"$E-E_{\rm VBM}$ (eV)"`。只有金属才用费米能级，写 `r"$E-E_{\rm F}$ (eV)"`。
 - **默认按元素投影**，每种元素一条线；讨论成键时才按轨道（如 S 3p、P 3s）。元素颜色用 `reg.color("S")`；按轨道时用 `reg.color("S 3p", "series")` 这类键。
 - **总态密度**用浅灰填充（`color="0.85"`），画在最底层。
