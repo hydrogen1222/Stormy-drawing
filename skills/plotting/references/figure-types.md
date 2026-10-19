@@ -20,6 +20,19 @@
 
 - 画布 `tall`（6 cm × 8 cm）。配态密度时，右边另画一张 `strip`（3 cm × 8 cm）的态密度窄条，**两张纵轴范围完全一致**，窄条不显示纵轴数字（`ax.tick_params(labelleft=False)`），横轴是态密度。Stormy 在 GIMP 里左右拼接。
 - 零点同态密度（价带顶），纵轴 `r"$E-E_{\rm VBM}$ (eV)"`，零点画水平参考虚线。
+- **读数据和画图直接用 `pubstyle.py` 里的函数**，不要自己写（0.6.0 起）：
+  ```python
+  b = ps.read_bands(".")                 # 读 EIGENVAL、POSCAR（或 CONTCAR）、KPATH.in
+  fig, ax = ps.new_figure("tall")
+  lo, hi = ps.plot_bands(ax, b)          # 零点、竖线、标签、带边点、带隙标注都在里面
+  ps.save(fig, "004_Si_bands_HSE06")
+  open("README.md", "a").write(ps.bands_summary(b))   # 数据来源、零点、带隙写进 README
+  ```
+  把计算目录里的 `EIGENVAL`、`POSCAR`、`KPATH.in`（金属还要 `OUTCAR`）复制进图文件夹即可。只读普通文本文件，有没有启用 HDF5 都一样，不需要 py4vasp。
+- **两种 k 点写法都支持**：普通 PBE 能带（整条路径都有权重）；HSE06 的"SCF 网格 + 零权重路径点"（vaspkit 251）——有零权重点时只画零权重点，网格点不画，但价带顶按所有点（含网格）找。KPOINTS + KPOINTS_OPT 的写法（输出在 vasprun.xml 里）暂不支持。
+- 路径中间的断开（如 U|K）自动识别，k 距离按真实倒格矢计算。读数据后先检查 `b.off_path`：为 True 说明带边在 SCF 网格上而不在画出的路径上，README 要写明。
+- 自旋极化（ISPIN=2）的能带暂不支持，`read_bands` 会直接报错；真遇到再加（计划：向上实线、向下虚线）。
+- **检查数据本身**：硅这类简并点（Γ 处价带顶三重简并）若三条带差 0.02 eV 以上，说明计算没收敛（EDIFF 太松或迭代太少），先告诉 Stormy 重算，不要照画。
 - 高对称路径用 vaspkit 的 303 功能生成（按晶体对称性自动给路径），路径和 KPATH 文件来源写进 README。
 - 高对称点处画灰色细竖线；横轴刻度标签用正确符号：`r"$\rm\Gamma$"`，不能写成 G；路径断开处标成 `"X|U"`。横轴不画次刻度，不写横轴标题。
 - 普通能带全部用一种深色（`"0.15"`），线宽 1.0 磅（`ps.DATA_LW`）。价带顶和导带底各画一个小实心圆点（`ps.CATEGORICAL[1]` 蓝、`ps.CATEGORICAL[0]` 红，`clip_on=False`），之间用 `ps.gap_arrow(ax, 0.0, e_cbm, y=k位置, vertical=True, text_fmt="{:.2f} eV\n(direct)")` 标带隙，数值和 direct 分两行，免得文字横跨高对称点竖线（间接带隙写 indirect）。

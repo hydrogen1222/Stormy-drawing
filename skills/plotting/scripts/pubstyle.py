@@ -52,7 +52,7 @@ for _stream in (sys.stdout, sys.stderr):
 # match the skill installed in the project: run
 #   python <skill>/scripts/init_figure.py --update-style <project>
 # before drawing; it replaces an older copy (the old one goes to _style/archive/).
-STYLE_VERSION = "0.5.0"
+STYLE_VERSION = "0.6.0"
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
@@ -704,6 +704,241 @@ def smooth_density(H, sigma_bins: float, periodic: bool = True):
         padded = np.pad(out, pad, mode=mode)
         out = np.apply_along_axis(lambda v: np.convolve(v, k, mode="valid"), axis, padded)
     return out
+
+
+# ---------------------------------------------------------------- band structures
+#
+# Reads plain VASP text output, so it works with or without HDF5 and needs no
+# extra package: EIGENVAL (energies and k-point weights), POSCAR or CONTCAR
+# (lattice, for k distances) and vaspkit's KPATH.in (labels of the path ends).
+# PBE line mode and HSE06 "SCF mesh + zero-weight path" (vaspkit 251) both
+# work: when zero-weight points exist, only they are drawn.
+
+_GREEK = {"GAMMA": r"\Gamma", "DELTA": r"\Delta", "LAMBDA": r"\Lambda",
+          "SIGMA": r"\Sigma", "PI": r"\Pi"}
+
+
+def kpoint_label(raw: str) -> str:
+    """vaspkit label -> axis label: GAMMA -> Γ, X_1 -> X with subscript 1."""
+    s = raw.strip().lstrip("!").strip()
+    base, _, sub = s.partition("_")
+    head = _GREEK.get(base.upper())
+    head = rf"\rm{head}" if head else rf"\rm {base}"
+    return rf"${head}_{{\rm {sub}}}$" if sub else rf"${head}$"
+
+
+def read_kpath(path: str | Path) -> list[tuple[np.ndarray, str]]:
+    """(fractional coordinate, raw label) of every labeled point in vaspkit's
+    KPATH.in or a line-mode KPOINTS file."""
+    out = []
+    lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    for line in lines[4:]:
+        tok = line.replace("!", " ").split()
+        if len(tok) >= 4:
+            try:
+                out.append((np.array([float(t) for t in tok[:3]]), tok[3]))
+            except ValueError:
+                pass
+    if not out:
+        raise ValueError(f"{path}: no labeled k-points found")
+    return out
+
+
+def _reciprocal(poscar: str | Path) -> np.ndarray:
+    """Reciprocal lattice rows (1/Å, without 2π) from POSCAR/CONTCAR."""
+    lines = Path(poscar).read_text(encoding="utf-8", errors="replace").splitlines()
+    scale = float(lines[1].split()[0])
+    a = np.array([[float(x) for x in lines[i].split()[:3]] for i in (2, 3, 4)])
+    if scale < 0:                                   # negative = target volume
+        scale = (-scale / abs(np.linalg.det(a))) ** (1 / 3)
+    return np.linalg.inv(a * scale).T
+
+
+def _read_eigenval(path: str | Path):
+    tok = Path(path).read_text(encoding="utf-8", errors="replace").split("\n")
+    ispin = int(tok[0].split()[3])
+    nelect, nk, nb = (int(float(x)) for x in tok[5].split()[:3])
+    nums = " ".join(tok[6:]).split()
+    per_band = 3 if ispin == 1 else 5
+    kpts, wts = np.zeros((nk, 3)), np.zeros(nk)
+    eig = np.zeros((ispin, nk, nb))
+    i = 0
+    for k in range(nk):
+        kpts[k] = [float(x) for x in nums[i:i + 3]]
+        wts[k] = float(nums[i + 3])
+        i += 4
+        for b in range(nb):
+            row = nums[i:i + per_band]
+            eig[0, k, b] = float(row[1])
+            if ispin == 2:
+                eig[1, k, b] = float(row[2])
+            i += per_band
+    return nelect, kpts, wts, eig
+
+
+class Bands:
+    """Band structure along the path, energies already relative to the zero
+    (VBM for insulators, Fermi level for metals). Attributes:
+      x        (nk,) distance along the path (1/Å), path breaks add nothing
+      energy   (nspin, nk, nbands) in eV, relative to the zero
+      ticks    x of each high-symmetry point;  labels  their axis labels
+      metal    True if bands cross the Fermi level
+      vbm, cbm (x, E) of the band edges on the path (None for metals)
+      gap, direct, zero_eV (absolute energy of the zero), source (str)
+    """
+
+
+def read_bands(folder: str | Path = ".", eigenval: str = "EIGENVAL",
+               poscar: str = "POSCAR", kpath: str = "KPATH.in",
+               outcar: str = "OUTCAR") -> Bands:
+    """Read a band calculation from copies of EIGENVAL, POSCAR (or CONTCAR) and
+    KPATH.in in `folder`. OUTCAR is only needed for metals (E-fermi)."""
+    folder = Path(folder)
+    nelect, kpts, wts, eig = _read_eigenval(folder / eigenval)
+    p = folder / poscar
+    if not p.exists() and (folder / "CONTCAR").exists():
+        p = folder / "CONTCAR"
+    rec = _reciprocal(p)
+    labeled = read_kpath(folder / kpath)
+
+    zero_w = wts == 0
+    hybrid = bool(zero_w.any() and (~zero_w).any())
+    path_k, path_e = (kpts[zero_w], eig[:, zero_w]) if hybrid else (kpts, eig)
+
+    # split the path into straight, evenly spaced segments; each segment holds
+    # both of its end points (vaspkit and VASP line mode both write them).
+    segs, i, n = [], 0, len(path_k)
+    while i < n:
+        j = i + 1
+        if j < n:
+            step = path_k[j] - path_k[i]
+            while j + 1 < n and np.allclose(path_k[j + 1] - path_k[j], step, atol=1e-5):
+                j += 1
+        segs.append((i, min(j, n - 1)))
+        i = j + 1
+
+    def name(frac):
+        for c, lab in labeled:
+            if np.allclose(c, frac, atol=1e-4):
+                return lab
+        raise ValueError(f"k-point {frac} is a path end but has no label in {kpath}")
+
+    x = np.zeros(n)
+    ticks, labels, pos = [0.0], [kpoint_label(name(path_k[segs[0][0]]))], 0.0
+    for s, (a, b) in enumerate(segs):
+        cart = path_k[a:b + 1] @ rec
+        d = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(cart, axis=0), axis=1))])
+        x[a:b + 1] = pos + d
+        pos += d[-1]
+        end = kpoint_label(name(path_k[b]))
+        if s + 1 < len(segs):
+            nxt = kpoint_label(name(path_k[segs[s + 1][0]]))
+            if not np.allclose(path_k[b], path_k[segs[s + 1][0]], atol=1e-5):
+                end = f"{end}|{nxt}"                    # path break, e.g. U|K
+        ticks.append(float(pos))
+        labels.append(end)
+    # labels joined with "|" are two math strings; merge into one
+    labels = [lab.replace("$|$", "|") for lab in labels]
+
+    if eig.shape[0] == 2:
+        raise ValueError("ISPIN=2 band structures are not supported yet; ask Stormy")
+    nocc = int(round(nelect / 2))
+    out = Bands()
+    out.x, out.ticks, out.labels = x, ticks, labels
+    out.source = f"{eigenval}, {p.name}, {kpath}" + (
+        " (HSE-type: zero-weight path points only)" if hybrid else "")
+    out.hybrid = hybrid
+    metal = True
+    if 0 < nocc < eig.shape[2]:
+        top_all = eig[0, :, nocc - 1].max()           # all k, mesh included
+        bot_all = eig[0, :, nocc].min()
+        metal = bot_all <= top_all
+    out.metal = metal
+    if metal:
+        m = re.search(r"E-fermi\s*:\s*(-?[\d.]+)",
+                      (folder / outcar).read_text(errors="replace")) if (folder / outcar).exists() else None
+        if not m:
+            raise ValueError("metal (bands cross the Fermi level) or ISPIN=2, which is not supported yet; metals need OUTCAR for E-fermi")
+        out.zero_eV = float(m.group(1))
+        out.vbm = out.cbm = out.gap = out.direct = None
+    else:
+        out.zero_eV = float(top_all)
+        v, c = path_e[0, :, nocc - 1], path_e[0, :, nocc]
+        iv, ic = int(np.argmax(v)), int(np.argmin(c))
+        out.vbm = (x[iv], v[iv] - out.zero_eV)
+        out.cbm = (x[ic], c[ic] - out.zero_eV)
+        out.gap = float(c[ic] - v[iv])
+        out.direct = bool(abs(x[iv] - x[ic]) < 1e-6 or np.allclose(path_k[iv], path_k[ic]))
+        out.off_path = bool(v[iv] < top_all - 1e-3 or c[ic] > bot_all + 1e-3)
+        out.nocc = nocc
+    out.energy = path_e - out.zero_eV
+    return out
+
+
+def band_energy_range(bands: Bands, above_cbm: float = 3.0, group_gap: float = 1.0):
+    """Default energy window: from just below the bottom of the valence-band
+    group touching the VBM (bands separated by > group_gap eV start a new
+    group) to about 3 eV above the CBM, both rounded to whole eV."""
+    e = bands.energy[0]
+    top = 0.0
+    lows = sorted(((e[:, b].min(), e[:, b].max()) for b in range(e.shape[1])
+                   if e[:, b].max() <= 1e-6), key=lambda t: -t[1])
+    bottom = 0.0
+    for lo, hi in lows:
+        if hi < bottom - group_gap:
+            break
+        bottom = min(bottom, lo)
+    lo = math.floor(bottom - 0.5)
+    up = (bands.cbm[1] if bands.cbm else top) + above_cbm
+    return float(lo), float(math.ceil(up))
+
+
+def plot_bands(ax, bands: Bands, ylim=None, mark_gap: bool = True):
+    """Draw a band structure by the skill's rules on a 'tall' canvas and return
+    the y limits (use the same ones for the DOS strip)."""
+    lo, hi = ylim or band_energy_range(bands)
+    styles = ["-", "--"]
+    for s in range(bands.energy.shape[0]):
+        for b in range(bands.energy.shape[2]):
+            ax.plot(bands.x, bands.energy[s, :, b], color="0.15", lw=DATA_LW, ls=styles[s])
+    for t in bands.ticks[1:-1]:
+        ax.axvline(t, color="0.6", lw=FRAME_LW, zorder=0.4, gid="reference")
+    ax.axhline(0, **REFERENCE_LINE)
+    ax.set_xlim(bands.ticks[0], bands.ticks[-1])
+    ax.set_xticks(bands.ticks, bands.labels)
+    ax.xaxis.set_minor_locator(mpl.ticker.NullLocator())
+    ax.set_ylim(lo, hi)
+    step = _nice_step(hi - lo, max_ticks=7)
+    ax.yaxis.set_major_locator(mpl.ticker.MultipleLocator(step))
+    ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator(2))
+    ax.set_ylabel(r"$E-E_{\rm F}$ (eV)" if bands.metal else r"$E-E_{\rm VBM}$ (eV)")
+    if mark_gap and not bands.metal:
+        (xv, ev), (xc, ec) = bands.vbm, bands.cbm
+        ax.plot([xv], [ev], "o", color=CATEGORICAL[1], ms=MARKER_SIZE, mew=0,
+                clip_on=False, zorder=3)
+        ax.plot([xc], [ec], "o", color=CATEGORICAL[0], ms=MARKER_SIZE, mew=0,
+                clip_on=False, zorder=3)
+        # arrow at the CBM: from E = 0 (VBM level) up to the CBM
+        ax.annotate("", xy=(xc, ec), xytext=(xc, ev),
+                    arrowprops=dict(arrowstyle="<->", lw=DATA_LW, color="0.15",
+                                    shrinkA=0, shrinkB=MARKER_SIZE / 2))
+        kind = "direct" if bands.direct else "indirect"
+        label_point(ax, xc, (ev + ec) / 2, f"{bands.gap:.2f} eV ({kind})")
+    return lo, hi
+
+
+def bands_summary(bands: Bands) -> str:
+    """Lines for the figure README."""
+    if bands.metal:
+        return (f"- Data: {bands.source}\n- Metal: zero = E-fermi from OUTCAR "
+                f"({bands.zero_eV:.4f} eV)\n")
+    s = (f"- Data: {bands.source}\n"
+         f"- Zero: VBM = {bands.zero_eV:.4f} eV (highest occupied band, band "
+         f"{bands.nocc}, over all k-points)\n"
+         f"- Gap on the path: {bands.gap:.3f} eV, {'direct' if bands.direct else 'indirect'}\n")
+    if bands.off_path:
+        s += "- Note: a band edge lies on the SCF mesh, not on the drawn path\n"
+    return s
 
 
 # ---------------------------------------------------------------- checks
