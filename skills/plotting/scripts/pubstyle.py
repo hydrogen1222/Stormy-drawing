@@ -59,7 +59,7 @@ for _stream in (sys.stdout, sys.stderr):
 #   0.9.0: band/DOS readers take the filled-band count from the EIGENVAL occupations
 #          (spin-orbit, odd electron counts), the gap and direct/indirect from all
 #          k-points, last E-fermi from OUTCAR; colors.json is locked and written
-#          atomically; fake bold is detected; palette 2 (colour-blind safe).
+#          atomically; fake bold is detected; palette 2 (Lancet colours).
 STYLE_VERSION = "0.9.0"
 
 CM = 1 / 2.54
@@ -121,17 +121,19 @@ MARKER_SIZE = 4.5
 
 # ---------------------------------------------------------------- colors
 
-# Unordered categories (elements, structures, methods). Palette 2 was searched, not
-# picked by eye: EVERY pair of the six differs by CIEDE2000 >= 17 for normal vision
-# AND for protan, deutan and tritan simulation (Machado 2009), and the lightness
-# L* of the six is spread (40 to 68, no two closer than 5) so they also stay apart in grayscale.
-# Palette 1 (red/blue/amber/teal/purple/pink) had pairs that fell together under
-# colour-vision deficiency; projects that already hold a colors.json keep it until
-# `init_figure.py --update-style` archives that file.
+# Unordered categories (elements, structures, methods). Palette 2 is the Lancet
+# set of the ggsci collection (navy, red, green, purple, teal, peach), chosen by
+# the project owner for looks. Known limits, so never rely on colour alone: under
+# red/green-blind or blue-yellow-blind simulation the closest pairs are only
+# about 7 CIEDE2000 apart (teal/purple, red/green), and the peach is pale
+# (L* 78), meant for fills and markers. Where curves of similar colour must be
+# told apart, add line styles or marker shapes. Palette 1 (red/blue/amber/teal/
+# purple/pink) stays for projects that already hold a colors.json; they keep it
+# until `init_figure.py --update-style` archives that file.
 # Never generate a 7th color: use line styles or marker shapes, or split the figure.
 PALETTES = {
     1: ["#C8553D", "#3D6FB6", "#C98A1E", "#2A9D8F", "#6B5BA8", "#D0628E"],
-    2: ["#3D6FB6", "#CA5974", "#0DACA3", "#968F02", "#A39AFE", "#5B642D"],
+    2: ["#00468B", "#ED0000", "#42B540", "#925E9F", "#0099B4", "#FDAF91"],
 }
 PALETTE_VERSION = 2      # the palette new projects get; stored in colors.json
 CATEGORICAL = PALETTES[PALETTE_VERSION]
@@ -168,8 +170,8 @@ def sequential_cmap(ramp: str = "cool", light: str = "#FFFFFF"):
 PREFERRED_BY = {
     1: {"S": "#C98A1E", "Cl": "#2A9D8F", "P": "#6B5BA8", "Li": "#3D6FB6",
         "O": "#C8553D", "Na": "#D0628E", "Br": "#C8553D"},
-    2: {"S": "#968F02", "Cl": "#0DACA3", "P": "#A39AFE", "Li": "#3D6FB6",
-        "O": "#CA5974", "Na": "#5B642D", "Br": "#CA5974"},
+    2: {"S": "#FDAF91", "Cl": "#42B540", "P": "#925E9F", "Li": "#00468B",
+        "O": "#ED0000", "Na": "#0099B4", "Br": "#ED0000"},
 }
 PREFERRED = PREFERRED_BY[PALETTE_VERSION]
 
@@ -195,7 +197,7 @@ class ColorRegistry:
         if self.palette != PALETTE_VERSION:
             print(f"NOTE color registry: {self.path} uses the older palette {self.palette}; "
                   f"it stays as it is so existing figures keep their colors. Palette "
-                  f"{PALETTE_VERSION} is colour-blind safe; run init_figure.py --update-style "
+                  f"{PALETTE_VERSION} is the new default; run init_figure.py --update-style "
                   "to switch (the old file is archived, figures change colour on redraw).")
 
     # -- storage ---------------------------------------------------------
@@ -786,7 +788,7 @@ def label_point(ax, x: float, y: float, s: str, gap_pt: float = 3.0, **kw):
 
 # ---------------------------------------------------------------- helpers
 
-def gradient_fill(ax, x, y, color, alpha_top: float = 0.75, zorder: float = 1):
+def gradient_fill(ax, x, y, color, alpha_top: float = 0.55, zorder: float = 1):
     """XPS-style fill under a curve: strong at the curve, fading to clear at 0.
     Draw the curve itself on top with ax.plot afterwards."""
     x = np.asarray(x, float)
