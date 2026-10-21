@@ -1485,6 +1485,8 @@ def _check_overlaps(fig, r) -> list[str]:
     touch another text, cross the frame or a reference line?"""
     out, notes = [], []
     for ax in fig.axes:
+        if getattr(ax, "_pubstyle_part", False):      # labels on arrows and boxes are meant to touch
+            continue
         items = [t for t in ax.texts if t.get_visible() and t.get_text().strip()]
         leg = ax.get_legend()
         if leg is not None:
@@ -1610,6 +1612,16 @@ def _audit_style(fig) -> dict[str, list[str]]:
                     and abs(ln.get_linewidth() - DATA_LW) > 0.01:
                 bad["line"].append(f"line '{ln.get_label()}' is {ln.get_linewidth():g} pt, "
                                    f"must be {DATA_LW:g} pt")
+        if getattr(ax, "_pubstyle_part", False):          # free layouts (pubparts): patches, arrows
+            for pa in ax.patches:
+                if pa.get_visible() and pa.get_edgecolor()[3] > 0 and pa.get_linewidth() > 0 \
+                        and abs(pa.get_linewidth() - DATA_LW) > 0.01:
+                    bad["line"].append(f"{type(pa).__name__} outline is {pa.get_linewidth():g} pt, "
+                                       f"must be {DATA_LW:g} pt")
+            for tx in ax.texts:
+                ap = getattr(tx, "arrow_patch", None)
+                if ap is not None and abs(ap.get_linewidth() - DATA_LW) > 0.01:
+                    bad["line"].append(f"arrow is {ap.get_linewidth():g} pt, must be {DATA_LW:g} pt")
         for coll in ([] if is_colorbar else ax.collections):    # colorbar dividers are not data lines
             if type(coll).__name__ == "LineCollection" and coll.get_visible():
                 widths = [w for w in np.atleast_1d(coll.get_linewidths()) if w > 0]
@@ -1634,6 +1646,9 @@ def check_figure(fig) -> list[str]:
     fig.canvas.draw()                                # tick labels exist only after a draw
     audit = _audit_style(fig)
     out.append(f"NOTE style: pubstyle {STYLE_VERSION}, colour mode {_STATE['mode']}")
+    if any(getattr(ax, "_pubstyle_part", False) for ax in fig.axes):
+        out.append("NOTE part: free layout (pubparts); fonts, sizes, line widths and the canvas "
+                   "edge are checked, label overlap is not")
     if _STATE["standin"]:
         out.append(f"NOTE font: {font} used as a DRAFT stand-in for Arial; "
                    "redraw on a machine with Arial")

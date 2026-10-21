@@ -690,6 +690,179 @@ def fake_bold_is_caught_by_the_checker():
     ps.plt.close(fig)
 
 
+# ---------------------------------------------------------------- vector parts (pubparts)
+
+import pubparts as pp  # noqa: E402
+
+
+def _patch_faces(fig):
+    return [tuple(np.round(p.get_facecolor(), 4)) for ax in fig.axes for p in ax.patches]
+
+
+@test
+def every_part_passes_the_style_checks():
+    import runpy
+    reg = ps.ColorRegistry(TMP / "parts_colors.json")
+    R = np.linalg.qr(np.random.default_rng(3).normal(size=(3, 3)))[0]
+    parts = {
+        "colorbar_v": pp.colorbar(-0.05, 0.05, "ESP (a.u.)"),
+        "colorbar_h": pp.colorbar(0, 1, "ELF", orientation="horizontal", bands=6, reverse=True),
+        "iso": pp.isosurface_legend([0.002, -0.002], unit=r"e $\rm\AA^{\rm -3}$", title="Isovalue"),
+        "iso_v": pp.isosurface_legend([0.02, -0.02], orientation="vertical"),
+        "elements": pp.element_legend(["Li", "P", "S", "Cl", "Na"], reg=reg, ncols=3),
+        "triad": pp.axes_triad(R, labels=("a", "b", "c")),
+        "triad_straight": pp.axes_triad(),
+        "scale": pp.scale_bar(5, "Å", 0.35),
+        "strip": pp.region_strip([("Crystal", 15), ("Glass", 15)], axis_label=r"$\zeta$ (Å)",
+                                 boundary_extra_cm=0.4),
+        "levels": pp.level_diagram([{"name": "Host", "levels": [(-6.1, "HOMO"), (-2.3, "LUMO")]},
+                                    {"name": "Doped", "levels": [(-5.4, "HOMO"), (-2.2, "LUMO")]}],
+                                   links=[(0, 0, 1, 0)], reg=reg),
+    }
+    fig, ax = pp.new_part(5, 3)
+    pp.arrow(ax, (0.5, 0.5), (2, 2)); pp.dashed_box(ax, 2.5, 0.5, 1.5, 1.2)
+    pp.dashed_circle(ax, 1.2, 2.2, 0.4); pp.dimension(ax, (0.5, 0.3), (4.5, 0.3), "2.45 Å")
+    pp.label(ax, 2.8, 2.4, "Move up 0.6 Å")
+    parts["free"] = fig
+    fig, ax = ps.new_figure()
+    xs = np.linspace(0, 1, 100)
+    ax.plot(xs, xs ** 2, color="0.15"); ax.set_xlabel("x"); ax.set_ylabel("y")
+    pp.add_inset(ax, (0.6, 0.9, 0.3, 0.8), (0.12, 0.5, 0.4, 0.4)).plot(xs, xs ** 2, color="0.15")
+    parts["inset"] = fig
+    for name, f in parts.items():
+        checks = ps.check_figure(f)
+        assert not [c for c in checks if c.startswith("FAIL")], (name, checks)
+        ps.plt.close(f)
+
+
+@test
+def part_checker_catches_a_wrong_line_width_and_a_wrong_font_size():
+    fig, ax = pp.new_part(4, 2)
+    pp.dashed_box(ax, 0.5, 0.5, 2, 1)
+    ax.patches[0].set_linewidth(3)
+    pp.label(ax, 1, 1, "x", size=12)
+    checks = ps.check_figure(fig)
+    assert any(c.startswith("FAIL line width") for c in checks), checks
+    assert any(c.startswith("FAIL text size") for c in checks), checks
+    ps.plt.close(fig)
+
+
+@test
+def part_canvas_has_the_real_size_in_cm():
+    fig, _ = pp.new_part(5.0, 3.0)
+    assert np.allclose(np.array(fig.get_size_inches()) * 2.54, [5.0, 3.0])
+    ps.plt.close(fig)
+    raises(ValueError, pp.new_part, 500, 3, match="cm")
+    bar = pp.scale_bar(5, "Å", 0.35)
+    assert abs(bar._pubstyle_bar_cm - 1.75) < 1e-9
+    raises(ValueError, pp.scale_bar, 5, "Å", -1)
+    raises(ValueError, pp.scale_bar, 5, "Å", 9, match="check cm_per_unit")
+
+
+@test
+def colorbar_is_turbo_like_vmd_and_ignores_the_soft_mode():
+    from matplotlib.colors import to_hex
+    def mesh(fig):
+        return [c for c in fig.axes[0].collections if type(c).__name__ == "QuadMesh"][0]
+
+    def bar_colors(fig):
+        return [to_hex(c) for c in mesh(fig).cmap(np.array([0.0, 1.0]))]
+    fig = pp.colorbar(-0.05, 0.05, "ESP (a.u.)")
+    assert bar_colors(fig) == ["#30123b", "#7a0403"]            # Turbo's two ends
+    rev = pp.colorbar(-0.05, 0.05, "ESP (a.u.)", reverse=True)
+    assert bar_colors(rev) == ["#7a0403", "#30123b"]
+    band = pp.colorbar(0, 1, "x", bands=5)
+    sampled = mesh(band).cmap(np.linspace(0, 1, 50))
+    assert len({tuple(np.round(c, 4)) for c in sampled}) == 5          # five flat bands (posterize)
+    ps.plt.close("all")
+    try:
+        ps.apply(mode="soft")
+        assert bar_colors(pp.colorbar(0, 1, "x")) == ["#30123b", "#7a0403"]   # never softened
+    finally:
+        ps.apply()
+    raises(ValueError, pp.colorbar, 1, 1, "x", match="smaller")
+    raises(ValueError, pp.colorbar, 0, 1, "x", orientation="diagonal")
+    raises(ValueError, pp.colorbar, 0, 1, "x", bands=1)
+
+
+@test
+def legends_follow_the_colour_mode_but_exact_colors_do_not():
+    reg = fresh_registry()
+    try:
+        normal = _patch_faces(pp.element_legend(["Li", "S"], reg=reg))
+        ps.apply(mode="soft")
+        soft = _patch_faces(pp.element_legend(["Li", "S"], reg=reg))
+        exact = _patch_faces(pp.element_legend(["Li"], colors={"Li": "#7B3FA0"}))
+        assert normal != soft                                    # registry colours are softened
+        assert exact == [tuple(np.round(ps.mpl.colors.to_rgba("#7B3FA0"), 4))]   # given hex is kept
+    finally:
+        ps.apply()
+    raises(ValueError, pp.element_legend, [])
+    raises(ValueError, pp.element_legend, ["Li", "Li_sv"], reg=reg, match="duplicates")
+
+
+@test
+def axes_triad_projects_the_view_and_rejects_non_rotations():
+    raises(ValueError, pp.axes_triad, np.eye(3) * 2, match="rotation")
+    raises(ValueError, pp.axes_triad, np.ones((2, 2)))
+    raises(ValueError, pp.axes_triad, None, ("x", "y"))
+    # looking straight down z: the z axis is a dot, x and y are full arrows
+    fig = pp.axes_triad()
+    ax = fig.axes[0]
+    assert len([t for t in ax.texts if getattr(t, "arrow_patch", None) is not None]) == 2
+    assert len(ax.patches) == 1
+    # 4x4 matrix as printed by VMD works like its 3x3 block
+    M4 = np.eye(4)
+    assert len(pp.axes_triad(M4).axes[0].texts) == 5        # 2 arrows + 3 labels (z is a dot)
+
+
+@test
+def region_strip_widths_follow_the_lengths():
+    fig = pp.region_strip([("A", 10), ("B", 30)], total_cm=8.0)
+    rects = [p for p in fig.axes[0].patches]
+    assert abs(rects[1].get_width() / rects[0].get_width() - 3.0) < 1e-9
+    raises(ValueError, pp.region_strip, [])
+    raises(ValueError, pp.region_strip, [("A", 0)])
+
+
+@test
+def helper_functions_validate_their_input():
+    fig, ax = pp.new_part(3, 2)
+    raises(ValueError, pp.dimension, ax, (1, 1), (1, 1), "0", match="same")
+    fig2, ax2 = ps.new_figure()
+    raises(ValueError, pp.add_inset, ax2, (1, 0, 0, 1), (0.1, 0.1, 0.3, 0.3), match="region")
+    raises(ValueError, pp.add_inset, ax2, (0, 1, 0, 1), (0.8, 0.8, 0.5, 0.5), match="inside")
+    raises(ValueError, pp.isosurface_legend, [])
+    raises(ValueError, pp.level_diagram, [])
+    ps.plt.close("all")
+
+
+@test
+def init_figure_keeps_the_parts_module_in_the_style_folder():
+    proj = TMP / "parts_proj"
+    proj.mkdir()
+    r = run_py(INIT, proj, "Parts_check")
+    assert r.returncode == 0, r.stdout + r.stderr
+    style = proj / "figures" / "_style"
+    assert (style / "pubparts.py").exists()
+    r = run_py("-c", "import sys; sys.path.insert(0, sys.argv[1]); import pubparts, pubstyle; print('ok')",
+               style, cwd=style)
+    assert "ok" in r.stdout, r.stdout + r.stderr
+    (style / "pubparts.py").write_text("# an old copy\n")
+    r = run_py(INIT, "--update-style", proj)
+    assert "UPDATED" in r.stdout and "pubparts.py" in r.stdout, r.stdout
+    assert list((style / "archive").glob("pubparts_*.py"))
+    assert "def colorbar" in (style / "pubparts.py").read_text(encoding="utf-8")
+
+
+@test
+def the_skill_scripts_folder_stays_tidy():
+    """Only the three scripts live there; a stray colors.json or temp file means a
+    registry was created in the wrong place."""
+    names = sorted(p.name for p in (SKILL / "scripts").iterdir() if p.name != "__pycache__")
+    assert names == ["init_figure.py", "pubparts.py", "pubstyle.py"], names
+
+
 # ---------------------------------------------------------------- no personal leftovers
 
 @test

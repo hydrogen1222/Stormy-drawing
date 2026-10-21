@@ -18,12 +18,14 @@
 skills/plotting/
   SKILL.md                    skill 正文（中文）：目录结构、画图和重画的步骤、全部样式规则、自查清单
   scripts/pubstyle.py         样式模块：样式、三种固定画布、坐标轴取整、图例避让、颜色登记、检查和保存
+  scripts/pubparts.py         拼图用的矢量部件：Turbo 色标条、等值面/元素图例、坐标轴三角、比例尺、区域条、能级图、放大小图框、箭头和虚线框
   scripts/init_figure.py      在项目里新建一个图文件夹；--update-style 同步项目的样式文件
   templates/                  plot.py 和 README.md 模板
   references/figure-types.md  态密度、能带、能垒、径向分布函数、均方位移、阿伦尼乌斯图、二维色图、柱状图的约定
   references/setup.md         安装 Arial 字体和 Python 环境
   references/structures.md    晶体结构图（OVITO；VESTA 做法待实测）
   examples/demo_all_types.py  用假数据画出全部图型，也用来自测
+  examples/demo_parts.py      画出全部拼图部件的示例
 install.sh                    安装脚本（Linux、macOS）
 install.ps1                   安装脚本（Windows PowerShell）
 tests/smoke_test.sh           安装和出图的自动测试（Linux、macOS），最后会运行 test_pubstyle.py

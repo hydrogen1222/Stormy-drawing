@@ -128,3 +128,29 @@
 - 柱子之间留空隙，柱子用登记文件的颜色（`group="structure"`），可加 1.0 磅深色描边（`ps.FRAME_LW`）。
 - 柱顶标数值时位数统一。
 - 误差棒带短横帽，线宽 1.0 磅，README 写明误差棒代表标准差还是标准误差。
+
+## 拼图用的矢量部件（`pubparts.py`）
+
+用途：VMD、VESTA、OVITO 的位图是图的主体，周围的色标条、图例、比例尺等在这里画成矢量，再拖进 PS/AI 里拼。每个部件就是一张普通的图：新建一个图文件夹（如 `005_Turbo_colorbar_ESP`），`plot.py` 里 `import pubparts as pp`，`draw()` 返回部件，照常 `ps.save_modes(...)`。尺寸单位是 cm，存成多大放进 PS 就是多大。拼图时用 PDF 或 SVG，文字可编辑，背景透明。
+
+```python
+import pubparts as pp
+def draw():
+    return pp.colorbar(-0.05, 0.05, "ESP (a.u.)")     # 竖的 Turbo 色标条
+```
+
+| 部件 | 函数 | 要点 |
+|---|---|---|
+| 色标条 | `pp.colorbar(vmin, vmax, title, cmap="turbo", orientation, bands, reverse)` | 数值范围必须和 VMD 的 Color Scale Data Range 一致（第一个值对应最左端颜色，最后一个值对应最右端，中间线性）；`bands=n` 对应 VMD 的 posterize，`reverse=True` 对应反转。**不随柔和模式变色**，必须和位图保持一致。拼图前取 VMD 图里几个像素和色标条对一下 |
+| 等值面图例 | `pp.isosurface_legend([0.002, -0.002], unit=..., title="Isovalue")` | 颜色默认正红负蓝（和 `ps.DIVERGING` 两端一致）；VMD 里用了别的颜色就把 `(值, 十六进制色)` 对传进去 |
+| 元素图例 | `pp.element_legend(["Li", "P", "S", "Cl"])` | 颜色取自登记文件（和曲线图一致，随色调模式变）；要和 VMD 原子颜色一致时用 `colors={"Li": "#..."}`，给定的色号原样使用 |
+| 坐标轴三角 | `pp.axes_triad(rotation, labels=("a", "b", "c"), vectors=晶格矢量)` | `rotation` 可直接给 VMD 的 `molinfo top get rotate_matrix`（4×4）；非正交晶胞传 `vectors`；朝向观察者的轴按投影画得很短 |
+| 比例尺 | `pp.scale_bar(5, "Å", cm_per_unit)` | `cm_per_unit` = 图放进版面后 1 Å 有多少 cm（量一条已知长度，如晶胞边长，再相除）；条的长度就是这么长 |
+| 区域条 | `pp.region_strip([("Crystal", 15), ("Glass", 15)], axis_label=..., boundary_extra_cm=0.4)` | 只看长度比例；虚线边界可延伸出去穿过相邻的图 |
+| 能级图 | `pp.level_diagram(columns, links=...)` | 普通带框图，按常规检查；HOMO/LUMO、带边、缺陷态 |
+| 放大小图框 | `pp.add_inset(ax, (x0, x1, y0, y1), (x, y, w, h))` | 加在任意普通图里，自动画虚线框和连线，返回小图的坐标轴，把同样的数据画进去 |
+| 自由排版 | `pp.new_part(w_cm, h_cm)` 加 `pp.arrow / dashed_box / dashed_circle / dimension / label / line` | 箭头、虚线框、距离线（如 `2.45 Å`）、"Move up 0.6 Å"这类标注；坐标单位是 cm |
+
+- 部件的检查：字体、字号、粗体、线宽（含方框、箭头的轮廓）和画布边缘照常检查；自由排版里文字压在线上是故意的，所以不查重叠。
+- 所有线 1.0 磅、文字 6 pt（色标条标题 7 pt）、深灰 `0.15`，和其他图一致。
+- 全部部件的示例：`examples/demo_parts.py`。
