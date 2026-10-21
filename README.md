@@ -10,7 +10,7 @@
 
 - agent 画的图默认是 matplotlib 的样子：有网格线、刻度难看、字体不对。这里把样式一次定死：Arial 全加粗、刻度朝外且有主次刻度、闭合图框、柔和且色盲友好的配色。
 - agent 喜欢把所有图片丢进一个文件夹，图和数据对不上。这里规定每张图一个文件夹，里面放复制来的数据、画图脚本和"配方"说明：哪一列是横轴、哪一列是纵轴、数据从哪个计算来。图不合格时，任何一个新开的 agent 都能照着重画。
-- agent 说"画好了"但图有毛病。这里每次保存都会自动检查：字体、上下标是否用公式渲染、文字有没有被裁掉、图例有没有压住曲线。不过关的图不交给人看。
+- agent 说"画好了"但图有毛病。这里每次保存都会自动检查，而且是量出图上实际的东西，不是看配置：每段文字（刻度、图例、公式）的字体、字号、是否加粗，每条线的线宽，刻度方向和粗细，有没有网格，图框是否闭合，上下标是否用公式渲染，文字有没有被裁掉，图例有没有压住曲线。不过关的图不交给人看。
 
 ## 包含什么
 
@@ -26,8 +26,9 @@ skills/plotting/
   examples/demo_all_types.py  用假数据画出全部图型，也用来自测
 install.sh                    安装脚本（Linux、macOS）
 install.ps1                   安装脚本（Windows PowerShell）
-tests/smoke_test.sh           安装和出图的自动测试（Linux、macOS）
+tests/smoke_test.sh           安装和出图的自动测试（Linux、macOS），最后会运行 test_pubstyle.py
 tests/smoke_test.ps1          同上（Windows，也能在 macOS/Linux 的 pwsh 里跑）
+tests/test_pubstyle.py        用合成的 VASP 文件测试读取和画图函数、检查器能否拦住违规的图、边界输入、模板
 ```
 
 ## 安装

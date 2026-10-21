@@ -1,6 +1,6 @@
 # 第一次在某台机器上画图
 
-每台机器做一次。Linux 服务器、Windows 电脑、Mac 都能用，区别只在字体这一步。做完后在服务器的 `~/.cluster-agents.md` 里记一行"Arial 已安装、matplotlib 可用"，以后不用再查（个人电脑上不用记）。
+每台机器做一次。Linux 服务器、Windows 电脑、Mac 都能用，区别只在字体这一步。做完后在你自己的项目笔记（例如项目的 `AGENTS.md`）里记一行"这台机器 Arial 已安装、matplotlib 可用"，以后不用再查（个人电脑上不用记）。
 
 ## 1. 准备 Arial
 
@@ -18,7 +18,7 @@ python -c "from matplotlib import font_manager as f; print('Arial' in {x.name fo
 python -c "import matplotlib, pathlib; [p.unlink() for p in pathlib.Path(matplotlib.get_cachedir()).glob('fontlist-*.json')]"
 ```
 
-**Linux 服务器**（不需要管理员权限）：Arial 是商业字体，不能随仓库分发，需要 Stormy 从自己的 Windows 电脑提供一次 `C:\Windows\Fonts\` 下的 `arial.ttf`（常规）、`arialbd.ttf`（粗体）、`ariali.ttf`（斜体）、`arialbi.ttf`（粗斜体），传到服务器任意位置，告诉 agent 路径。agent 执行：
+**Linux 服务器**（不需要管理员权限）：Arial 是商业字体，不能随仓库分发，需要用户从自己的 Windows 电脑提供一次 `C:\Windows\Fonts\` 下的 `arial.ttf`（常规）、`arialbd.ttf`（粗体）、`ariali.ttf`（斜体）、`arialbi.ttf`（粗斜体），传到服务器任意位置，告诉 agent 路径。agent 执行：
 
 ```bash
 mkdir -p ~/.local/share/fonts
@@ -29,7 +29,7 @@ python -c "import matplotlib, pathlib; [p.unlink() for p in pathlib.Path(matplot
 
 再运行开头那行检查，打印 `True` 才算装好。
 
-找不到 Arial 时 `pubstyle.apply()` 会直接报错。**不许**为了让脚本跑通而改成别的字体。只有在 Stormy 同意先出草稿时，才可以设环境变量 `PUBSTYLE_ALLOW_STANDIN=1`（Linux/macOS：`export PUBSTYLE_ALLOW_STANDIN=1`；Windows PowerShell：`$env:PUBSTYLE_ALLOW_STANDIN = "1"`），用字宽相同的 Liberation Sans 代替；这样画出的图在检查结果里标为草稿，正式图必须重画。
+找不到 Arial 时 `pubstyle.apply()` 会直接报错。**不许**为了让脚本跑通而改成别的字体。只有在用户同意先出草稿时，才可以设环境变量 `PUBSTYLE_ALLOW_STANDIN=1`（Linux/macOS：`export PUBSTYLE_ALLOW_STANDIN=1`；Windows PowerShell：`$env:PUBSTYLE_ALLOW_STANDIN = "1"`），用字宽相同的 Liberation Sans 代替；这样画出的图在检查结果里标为草稿，正式图必须重画。
 
 ## 2. Python 环境
 

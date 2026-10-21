@@ -8,8 +8,8 @@ authors:
     affiliation: "Anthropic"
 repository-code: "https://github.com/hydrogen1222/Stormy-drawing"
 license: MIT
-version: "0.1.0"
-date-released: "2026-10-03"
+version: "0.8.0"
+date-released: "2026-10-21"
 keywords:
   - matplotlib
   - scientific figures

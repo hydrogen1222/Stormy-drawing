@@ -82,4 +82,9 @@ ls "$P/figures/_style/archive/"pubstyle_unversioned_*.py >/dev/null 2>&1 || fail
 python3 "$P/.agents/skills/plotting/scripts/init_figure.py" --update-style "$P" | grep -q "up to date" || fail "update-style rerun"
 ok "--update-style replaces and archives an old style copy"
 
+# 9. reading VASP files, the style checker, edge cases, SVG fonts, init_figure and the template
+python3 "$REPO/tests/test_pubstyle.py" > "$TMP/pytests.log" 2>&1 \
+  || { cat "$TMP/pytests.log"; fail "tests/test_pubstyle.py"; }
+ok "tests/test_pubstyle.py ($(grep -c '^PASS' "$TMP/pytests.log") checks)"
+
 printf 'smoke test: all passed\n'
