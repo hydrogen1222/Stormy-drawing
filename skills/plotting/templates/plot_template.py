@@ -33,22 +33,29 @@ if _todo:
     sys.exit("plot.py is still the template. Fill in " + ", ".join(_todo) +
              " at the top of this file (see README.md), then run it again.")
 
-ps.apply()
-reg = ps.ColorRegistry()
+# colour modes to draw. Both by default; the user picks one. Once they have, keep only
+# that one here, e.g. MODES = ("soft",), and write the choice into README.md.
+MODES = ("normal", "soft")
 
-# ---- data: files in this folder only, never paths into calculation folders
-data = np.loadtxt(HERE / SETTINGS["data_file"], comments="#", encoding="utf-8")
+# ---- data: files in data/ only, never paths into calculation folders
+data = np.loadtxt(HERE / "data" / SETTINGS["data_file"], comments="#", encoding="utf-8")
 x = data[:, 0]          # column 1
 y = data[:, 1]          # column 2
 
-# ---- plot
-fig, ax = ps.new_figure("standard")
-ax.plot(x, y, color=reg.color(SETTINGS["series_key"]), label=SETTINGS["series_label"])
 
-ax.set_xlim(x.min(), x.max())
-ps.nice_limits(ax, y.max())
-ax.set_xlabel(SETTINGS["x_label"])
-ax.set_ylabel(SETTINGS["y_label"])
-ps.place_legend(ax)             # remove for a single curve
+def draw():
+    """Build the figure; called once per colour mode."""
+    reg = ps.ColorRegistry()
+    fig, ax = ps.new_figure("standard")
+    ax.plot(x, y, color=reg.color(SETTINGS["series_key"]), label=SETTINGS["series_label"])
 
-ps.save(fig, HERE.name, HERE)
+    ax.set_xlim(x.min(), x.max())
+    ps.nice_limits(ax, y.max())
+    ax.set_xlabel(SETTINGS["x_label"])
+    ax.set_ylabel(SETTINGS["y_label"])
+    ps.place_legend(ax)             # remove for a single curve
+    return fig
+
+
+# writes output/<mode>/<folder name>_<mode>.* for every mode in MODES
+ps.save_modes(draw, HERE.name, HERE, MODES)

@@ -1,20 +1,25 @@
 # 各类图的专门约定
 
-> 画某一类图之前只读对应那一节。所有代码片段假设已经 `import pubstyle as ps; ps.apply(); reg = ps.ColorRegistry()`。
+> 画某一类图之前只读对应那一节。所有代码片段假设已经 `import pubstyle as ps`，画图部分写在 `plot.py` 的 `draw()` 里（`ps.save_modes` 会为 normal 和 soft 各调用一次，返回 `fig`；`reg = ps.ColorRegistry()` 也在 `draw()` 里取）。读数据和写 README 放在 `draw()` 外面，只做一次。
 > 可运行的完整例子（假数据）在 `examples/demo_all_types.py`。
 
 ## 态密度（DOS / PDOS）
 
 - **读数据和画图直接用 `pubstyle.py` 里的函数**，不要自己写（0.7.0 起）：
   ```python
-  d = ps.read_dos(".", formula_units=4)      # 读 DOSCAR、POSCAR（或 CONTCAR）、EIGENVAL
-  fig, ax = ps.new_figure()
-  ps.plot_dos(ax, d, reg)                    # 默认按元素；只画总态密度用 kind="total"
-  ps.place_legend(ax)                        # 按轨道：kind={"S": ["p"], "P": ["s", "p"]}
-  ps.save(fig, "001_Li6PS5Cl_bulk_DOS")
-  open("README.md", "a").write(ps.dos_summary(d))
+  d = ps.read_dos(HERE / "data", formula_units=4)   # 读 data/ 里的 DOSCAR、POSCAR（或 CONTCAR）、EIGENVAL
+
+  def draw():
+      reg = ps.ColorRegistry()
+      fig, ax = ps.new_figure()
+      ps.plot_dos(ax, d, reg)                # 默认按元素；只画总态密度用 kind="total"
+      ps.place_legend(ax)                    # 按轨道：kind={"S": ["p"], "P": ["s", "p"]}
+      return fig
+
+  ps.save_modes(draw, HERE.name, HERE)       # 写进 output/normal/ 和 output/soft/
+  open(HERE / "README.md", "a").write(ps.dos_summary(d))   # 只在第一次画时追加，别重复追加
   ```
-  把 `DOSCAR`、`POSCAR`、`EIGENVAL` 复制进图文件夹。缺 `EIGENVAL` 时 `read_dos` 会报错（没有它分不出绝缘体和金属，也没有带隙）；确知是金属时才用 `assume_metal=True`。`formula_units`（晶胞里有几个化学式单元）**必须自己给**，函数不猜；写进 README。零点：绝缘体取 EIGENVAL 里所有 k 点的价带顶，金属取 DOSCAR 里的费米能级。带隙取自 EIGENVAL，不取态密度边缘。
+  把 `DOSCAR`、`POSCAR`、`EIGENVAL` 复制进图文件夹的 `data/`。缺 `EIGENVAL` 时 `read_dos` 会报错（没有它分不出绝缘体和金属，也没有带隙）；确知是金属时才用 `assume_metal=True`。`formula_units`（晶胞里有几个化学式单元）**必须自己给**，函数不猜；写进 README。零点：绝缘体取 EIGENVAL 里所有 k 点的价带顶，金属取 DOSCAR 里的费米能级。带隙取自 EIGENVAL，不取态密度边缘。占据带数取自 EIGENVAL 的占据数列，不是 NELECT/2（自旋轨道耦合时每条带只放一个电子，NELECT/2 会少算一半）；电子数为奇数而 ISPIN=1 时程序报错，不会当成绝缘体。元素/轨道曲线是投影到各原子周围球内的结果，加起来不等于总态密度，README 里写明。
 - 按元素或按轨道画需要计算时设 `LORBIT = 11`（或 10）；DOSCAR 里没有分波态密度时只能画总的，`plot_dos` 会报错并提示。自旋极化（ISPIN=2）的态密度暂不支持，`read_dos` 会直接报错。
 - 默认能量范围由 `ps.dos_energy_range` 按下面的规则算，`plot_dos(..., xlim=(lo, hi))` 可以覆盖，覆盖时在 README 里写理由。
 - **能量零点**：绝缘体放在价带顶（VBM），从本征值里找（例如 vaspkit 输出的带边信息，或 EIGENVAL/vasprun.xml 中占据态的最高本征值），不用 OUTCAR 里的 E-fermi，因为绝缘体的费米能级在带隙里的位置是随意的。横轴写 `r"$E-E_{\rm VBM}$ (eV)"`。只有金属才用费米能级，写 `r"$E-E_{\rm F}$ (eV)"`。
@@ -34,20 +39,26 @@
 - 零点同态密度（价带顶），纵轴 `r"$E-E_{\rm VBM}$ (eV)"`，零点画水平参考虚线。
 - **读数据和画图直接用 `pubstyle.py` 里的函数**，不要自己写（0.6.0 起）：
   ```python
-  b = ps.read_bands(".")                 # 读 EIGENVAL、POSCAR（或 CONTCAR）、KPATH.in
-  fig, ax = ps.new_figure("tall")
-  lo, hi = ps.plot_bands(ax, b)          # 零点、竖线、标签、带边点、带隙标注都在里面
-  ps.save(fig, "004_Si_bands_HSE06")
-  open("README.md", "a").write(ps.bands_summary(b))   # 数据来源、零点、带隙写进 README
+  b = ps.read_bands(HERE / "data")       # 读 data/ 里的 EIGENVAL、POSCAR（或 CONTCAR）、KPATH.in
+
+  def draw():
+      fig, ax = ps.new_figure("tall")
+      ps.plot_bands(ax, b)               # 零点、竖线、标签、带边点、带隙标注都在里面
+      return fig
+
+  ps.save_modes(draw, HERE.name, HERE)
+  open(HERE / "README.md", "a").write(ps.bands_summary(b))   # 数据来源、零点、带隙写进 README（只追加一次）
   ```
-  把计算目录里的 `EIGENVAL`、`POSCAR`、`KPATH.in`（金属还要 `OUTCAR`）复制进图文件夹即可。只读普通文本文件，有没有启用 HDF5 都一样，不需要 py4vasp。
+  把计算目录里的 `EIGENVAL`、`POSCAR`、`KPATH.in`（金属还要 `OUTCAR`）复制进图文件夹的 `data/` 即可。只读普通文本文件，有没有启用 HDF5 都一样，不需要 py4vasp。
 - **两种 k 点写法都支持**：普通 PBE 能带（整条路径都有权重）；HSE06 的"SCF 网格 + 零权重路径点"（vaspkit 251）——有零权重点时只画零权重点，网格点不画，但价带顶按所有点（含网格）找。KPOINTS + KPOINTS_OPT 的写法（输出在 vasprun.xml 里）暂不支持。
 - 路径中间的断开（如 U|K）自动识别，k 距离按真实倒格矢计算。读数据后先检查 `b.off_path`：为 True 说明带边在 SCF 网格上而不在画出的路径上，README 要写明。
 - 自旋极化（ISPIN=2）的能带暂不支持，`read_bands` 会直接报错；真遇到再加（计划：向上实线、向下虚线）。
 - **检查数据本身**：硅这类简并点（Γ 处价带顶三重简并）若三条带差 0.02 eV 以上，说明计算没收敛（EDIFF 太松或迭代太少），先告诉用户重算，不要照画。
 - 高对称路径用 vaspkit 的 303 功能生成（按晶体对称性自动给路径），路径和 KPATH 文件来源写进 README。
 - 高对称点处画灰色细竖线；横轴刻度标签用正确符号：`r"$\rm\Gamma$"`，不能写成 G；路径断开处标成 `"X|U"`。横轴不画次刻度，不写横轴标题。
-- 普通能带全部用一种深色（`"0.15"`），线宽 1.0 磅（`ps.DATA_LW`）。价带顶和导带底各画一个小实心圆点（`ps.CATEGORICAL[1]` 蓝、`ps.CATEGORICAL[0]` 红，`clip_on=False`），之间用 `ps.gap_arrow(ax, 0.0, e_cbm, y=k位置, vertical=True, text_fmt="{:.2f} eV\n(direct)")` 标带隙，数值和 direct 分两行，免得文字横跨高对称点竖线（间接带隙写 indirect）。
+- 普通能带全部用一种深色（`"0.15"`），线宽 1.0 磅（`ps.DATA_LW`）。价带顶和导带底各画一个小实心圆点（价带顶 `ps.CATEGORICAL[1]`、导带底 `ps.CATEGORICAL[0]`，`clip_on=False`；`ps.plot_bands` 已经这样画），之间用 `ps.gap_arrow(ax, 0.0, e_cbm, y=k位置, vertical=True, text_fmt="{:.2f} eV\n(direct)")` 标带隙，数值和 direct 分两行，免得文字横跨高对称点竖线（间接带隙写 indirect）。
+- 带隙和直接/间接取自 EIGENVAL 里**所有** k 点（杂化泛函的 SCF 网格也算），不是只看画出来的路径：直接带隙 = 同一个 k 点同时有价带顶和导带底（简并、对称等价的点按能量相同处理，不按横轴位置比）。带边不在画出的路径上时，图上不画带隙标记和数值，README 里写全局带隙和路径上的带隙（`bands.gap`、`bands.gap_path`）。
+- 金属的零点是 OUTCAR 里**最后一个** `E-fermi`；应取产生电荷密度的自洽（SCF）计算的 OUTCAR，非自洽能带计算的 E-fermi 可能有偏移，README 里写明用的是哪一个。
 - 能量范围规则同态密度，能带图和窄条用同一个范围。
 - 按元素着色的能带只在讨论成键时画。
 - 计算方法（PBE 还是 HSE06，HSE06 能带用的是哪种做法）写进 README，图上不写。

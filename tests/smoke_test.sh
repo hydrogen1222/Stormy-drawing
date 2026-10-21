@@ -58,21 +58,24 @@ ok "--target and --dry-run"
 # 7. the installed skill works: new figure folder + all demo figure types
 P="$TMP/fresh"
 python3 "$P/.agents/skills/plotting/scripts/init_figure.py" "$P" Test_figure >/dev/null
-[ -f "$P/figures/001_Test_figure/plot.py" ] && [ -f "$P/figures/_style/pubstyle.py" ] || fail "init_figure"
+[ -f "$P/figures/001_Test_figure/plot.py" ] && [ -d "$P/figures/001_Test_figure/data" ] \
+  && [ -f "$P/figures/_style/pubstyle.py" ] || fail "init_figure"
 python3 "$P/.agents/skills/plotting/examples/demo_all_types.py" "$TMP/demo" > "$TMP/demo.log" 2>&1 \
   || { cat "$TMP/demo.log"; fail "demo_all_types"; }
 grep -q "FAIL" "$TMP/demo.log" && { cat "$TMP/demo.log"; fail "a demo figure failed its checks"; }
-[ "$(ls "$TMP/demo"/*.pdf | wc -l)" -eq 11 ] || fail "expected 11 demo figures"
-[ "$(ls "$TMP/demo"/*.tif | wc -l)" -eq 11 ] || fail "expected 11 TIFF files"
+for mode in normal soft; do
+  [ "$(find "$TMP/demo/$mode" -name '*.pdf' | wc -l)" -eq 11 ] || fail "expected 11 $mode demo figures"
+  [ "$(find "$TMP/demo/$mode" -name '*.tif' | wc -l)" -eq 11 ] || fail "expected 11 $mode TIFF files"
+done
 python3 -c "
 import sys, glob
 from PIL import Image
-for f in glob.glob(sys.argv[1] + '/*.tif'):
+for f in glob.glob(sys.argv[1] + '/*/*/*.tif'):
     im = Image.open(f)
     assert im.mode == 'RGB' and im.info.get('compression') == 'tiff_lzw', f
     assert round(im.info['dpi'][0]) == 1200, f
 " "$TMP/demo" || fail "TIFF files are not RGB, LZW, 1200 dpi"
-ok "init_figure and all eleven demo figures"
+ok "init_figure and all eleven demo figures in both colour modes"
 
 # 8. an outdated project style copy is replaced and archived
 printf '# old copy without STYLE_VERSION\n' > "$P/figures/_style/pubstyle.py"

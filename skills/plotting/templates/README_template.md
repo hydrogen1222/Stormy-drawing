@@ -8,7 +8,7 @@
 
 ## 数据从哪来
 
-| 数据文件（本文件夹内） | 来源机器 | 来源计算目录 | 提取方法 |
+| 数据文件（`data/` 内） | 来源机器 | 来源计算目录 | 提取方法 |
 |---|---|---|---|
 | `__DATA_FILE__` | 机器名或主机名（本机也写上） | 计算目录的完整路径 | 例如 vaspkit 的哪个功能号，或哪个脚本加什么参数 |
 
@@ -33,10 +33,11 @@
 - 画布：standard（8 cm × 6 cm）/ tall / strip
 - 坐标范围及理由：
 - 颜色：来自 `figures/_style/colors.json`
+- 色调模式：normal 和 soft 两份都在 `output/` 里；用户选用：（待用户选定后填 normal 或 soft，并把 `plot.py` 里的 `MODES` 改成只画选定的那一个）
 
 ## 自查结果
 
-（把 `__FIGURE_NAME___checks.txt` 的内容贴在这里，再写一句 agent 亲眼看图后的结论。）
+（把 `output/normal/__FIGURE_NAME___normal_checks.txt` 和 `output/soft/__FIGURE_NAME___soft_checks.txt` 的内容贴在这里，再写一句 agent 亲眼看两份图后的结论。）
 
 ## 修改记录
 

@@ -7,17 +7,22 @@ module up to date with this skill.
 
 Example:
     python init_figure.py ~/projects/Li6PS5Cl_doping Li6PS5Cl_bulk_DOS
-    -> figures/004_Li6PS5Cl_bulk_DOS/ with plot.py, README.md, archive/
+    -> figures/004_Li6PS5Cl_bulk_DOS/ with README.md, plot.py, data/, archive/
+       (the first run of plot.py adds output/normal/ and output/soft/)
 
 The project root must already exist (a mistyped path is an error, not a new
 folder tree). On first use it also creates figures/_style/ with this project's copy of
 pubstyle.py and an empty color registry colors.json. Both commands also check
 that copy: if it is older than this skill's pubstyle.py (or has no version at
 all), the old copy moves to figures/_style/archive/ and the new one replaces
-it; figures drawn with the old copy must then be redrawn. colors.json is never
-touched. Standard library only.
+it; figures drawn with the old copy must then be redrawn. colors.json is left
+alone, except when the new style brings a new colour palette: then the old file
+is archived next to the old pubstyle.py and a fresh registry starts (old figures
+change colour when redrawn, and the archive lets you go back). Standard library
+only.
 """
 import datetime
+import json
 import re
 import shutil
 import sys
@@ -35,6 +40,36 @@ def style_version(path: Path) -> tuple[int, ...]:
     """STYLE_VERSION of a pubstyle.py; (0, 0, 0) for copies made before versions existed."""
     m = re.search(r'^STYLE_VERSION = "([\d.]+)"', path.read_text(encoding="utf-8"), re.M)
     return tuple(int(x) for x in m.group(1).split(".")) if m else (0, 0, 0)
+
+
+def palette_version(path: Path) -> int:
+    m = re.search(r'^PALETTE_VERSION = (\d+)', path.read_text(encoding="utf-8"), re.M)
+    return int(m.group(1)) if m else 1
+
+
+def sync_palette(style: Path, src: Path) -> None:
+    """A new colour palette needs a fresh colors.json; keep the old one in archive/."""
+    reg = style / "colors.json"
+    if not reg.exists():
+        return
+    try:
+        stored = json.loads(reg.read_text(encoding="utf-8") or "{}")
+    except ValueError:
+        print(f"WARNING: {reg} is damaged and was left alone; restore it from archive/ "
+              "or version control")
+        return
+    has_colors = any(isinstance(v, dict) and v for k, v in stored.items() if k != "_palette")
+    old = stored.get("_palette", 1 if has_colors else None)
+    new = palette_version(src)
+    if old is None or old >= new:
+        return
+    archive = style / "archive"
+    archive.mkdir(exist_ok=True)
+    keep = archive / f"colors_palette{old}_{datetime.date.today()}.json"
+    shutil.move(str(reg), str(keep))
+    reg.write_text("{}\n", encoding="utf-8")
+    print(f"NEW PALETTE ({old} -> {new}): colors.json archived to {keep}; the project starts "
+          "with an empty registry, so each element gets its new color on the next redraw.")
 
 
 def sync_style(style: Path) -> None:
@@ -60,9 +95,10 @@ def sync_style(style: Path) -> None:
         keep = archive / f"pubstyle_{label}_{datetime.date.today()}.py"
         shutil.move(str(dst), str(keep))
         shutil.copy2(src, dst)
+        sync_palette(style, src)
         print(f"UPDATED {dst}: {v(old)} -> {v(new)} (old copy: {keep})")
         print("Figures drawn with the old style must be redrawn: run plot.py in each "
-              "figure folder and check the new *_checks.txt.")
+              "figure folder and check the new output/*/*_checks.txt.")
 
 
 # names Windows refuses as folder names, whatever the extension
@@ -123,12 +159,13 @@ def main() -> int:
                if p.is_dir() and re.match(r"\d{3}_", p.name)]
     folder = figures / f"{(max(numbers) + 1 if numbers else 1):03d}_{name}"
     folder.mkdir()
+    (folder / "data").mkdir()
     (folder / "archive").mkdir()
     for src, dst in (("plot_template.py", "plot.py"), ("README_template.md", "README.md")):
         text = (SKILL / "templates" / src).read_text(encoding="utf-8")
         (folder / dst).write_text(text.replace("__FIGURE_NAME__", folder.name), encoding="utf-8")
-    print(f"created {folder}/ (plot.py, README.md, archive/)")
-    print("next: copy the data file into it, fill README.md, edit plot.py, run it")
+    print(f"created {folder}/ (plot.py, README.md, data/, archive/; output/ appears on the first run)")
+    print("next: copy the data file into data/, fill README.md, edit plot.py, run it")
     return 0
 
 
