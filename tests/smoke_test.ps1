@@ -78,16 +78,20 @@ try {
     $skill = P @($P1, ".agents", "skills", "plotting")
     & $Py (P @($skill, "scripts", "init_figure.py")) $P1 "Test_figure" | Out-Null
     if (-not (Test-Path (P @($P1, "figures", "001_Test_figure", "plot.py")))) { Fail "init_figure" }
+    if (-not (Test-Path (P @($P1, "figures", "001_Test_figure", "data")))) { Fail "init_figure: no data folder" }
     $demo = P @($Tmp, "demo")
     $log = & $Py (P @($skill, "examples", "demo_all_types.py")) $demo 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { Write-Host $log; Fail "demo_all_types" }
     if ($log -match "FAIL") { Write-Host $log; Fail "a demo figure failed its checks" }
-    if ((Get-ChildItem -LiteralPath $demo -Filter "*.pdf").Count -ne 11) { Fail "expected 11 demo figures" }
-    if ((Get-ChildItem -LiteralPath $demo -Filter "*.tif").Count -ne 11) { Fail "expected 11 TIFF files" }
-    $tifCheck = "import sys, glob`nfrom PIL import Image`nfor f in glob.glob(sys.argv[1] + '/*.tif'):`n    im = Image.open(f)`n    assert im.mode == 'RGB' and im.info.get('compression') == 'tiff_lzw', f`n    assert round(im.info['dpi'][0]) == 1200, f"
+    foreach ($mode in @("normal", "soft")) {
+        $dir = P @($demo, $mode)
+        if ((Get-ChildItem -LiteralPath $dir -Recurse -Filter "*.pdf").Count -ne 11) { Fail "expected 11 $mode demo figures" }
+        if ((Get-ChildItem -LiteralPath $dir -Recurse -Filter "*.tif").Count -ne 11) { Fail "expected 11 $mode TIFF files" }
+    }
+    $tifCheck = "import sys, glob`nfrom PIL import Image`nfor f in glob.glob(sys.argv[1] + '/*/*/*.tif'):`n    im = Image.open(f)`n    assert im.mode == 'RGB' and im.info.get('compression') == 'tiff_lzw', f`n    assert round(im.info['dpi'][0]) == 1200, f"
     & $Py -c $tifCheck $demo
     if ($LASTEXITCODE -ne 0) { Fail "TIFF files are not RGB, LZW, 1200 dpi" }
-    Ok "init_figure and all eleven demo figures"
+    Ok "init_figure and all eleven demo figures in both colour modes"
 
     # 7. an outdated project style copy is replaced and archived
     $styleFile = P @($P1, "figures", "_style", "pubstyle.py")

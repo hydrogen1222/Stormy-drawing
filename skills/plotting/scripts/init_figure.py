@@ -7,7 +7,8 @@ module up to date with this skill.
 
 Example:
     python init_figure.py ~/projects/Li6PS5Cl_doping Li6PS5Cl_bulk_DOS
-    -> figures/004_Li6PS5Cl_bulk_DOS/ with plot.py, README.md, archive/
+    -> figures/004_Li6PS5Cl_bulk_DOS/ with README.md, plot.py, data/, archive/
+       (the first run of plot.py adds output/normal/ and output/soft/)
 
 The project root must already exist (a mistyped path is an error, not a new
 folder tree). On first use it also creates figures/_style/ with this project's copy of
@@ -97,7 +98,7 @@ def sync_style(style: Path) -> None:
         sync_palette(style, src)
         print(f"UPDATED {dst}: {v(old)} -> {v(new)} (old copy: {keep})")
         print("Figures drawn with the old style must be redrawn: run plot.py in each "
-              "figure folder and check the new *_checks.txt.")
+              "figure folder and check the new output/*/*_checks.txt.")
 
 
 # names Windows refuses as folder names, whatever the extension
@@ -158,12 +159,13 @@ def main() -> int:
                if p.is_dir() and re.match(r"\d{3}_", p.name)]
     folder = figures / f"{(max(numbers) + 1 if numbers else 1):03d}_{name}"
     folder.mkdir()
+    (folder / "data").mkdir()
     (folder / "archive").mkdir()
     for src, dst in (("plot_template.py", "plot.py"), ("README_template.md", "README.md")):
         text = (SKILL / "templates" / src).read_text(encoding="utf-8")
         (folder / dst).write_text(text.replace("__FIGURE_NAME__", folder.name), encoding="utf-8")
-    print(f"created {folder}/ (plot.py, README.md, archive/)")
-    print("next: copy the data file into it, fill README.md, edit plot.py, run it")
+    print(f"created {folder}/ (plot.py, README.md, data/, archive/; output/ appears on the first run)")
+    print("next: copy the data file into data/, fill README.md, edit plot.py, run it")
     return 0
 
 

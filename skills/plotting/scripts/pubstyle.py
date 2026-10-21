@@ -4,17 +4,21 @@ One copy of this file lives in each project at figures/_style/pubstyle.py
 (made by init_figure.py). Every figure's plot.py imports it, so changing the
 style here changes every figure of that project on the next redraw.
 
-Typical plot.py:
+Typical plot.py (the template made by init_figure.py has this shape):
 
     import pubstyle as ps
-    ps.apply()
-    reg = ps.ColorRegistry()                  # figures/_style/colors.json
-    fig, ax = ps.new_figure("standard")       # 8 cm x 6 cm
-    ax.plot(x, y, color=reg.color("Li"), label="Li")
-    ps.nice_limits(ax, y.max())               # axis top: max + 10 %, rounded up
-    ps.place_text(ax, "Glass", x_range=(0, 15))  # region name on a free spot
-    ps.place_legend(ax)                       # top right unless it covers data or text
-    ps.save(fig, "003_Li6PS5Cl_bulk_DOS")     # PNG x2, PDF, SVG, TIFF + checks
+
+    def draw():                                   # called once per colour mode
+        reg = ps.ColorRegistry()                  # figures/_style/colors.json
+        fig, ax = ps.new_figure("standard")       # 8 cm x 6 cm
+        ax.plot(x, y, color=reg.color("Li"), label="Li")
+        ps.nice_limits(ax, y.max())               # axis top: max + 10 %, rounded up
+        ps.place_text(ax, "Glass", x_range=(0, 15))  # region name on a free spot
+        ps.place_legend(ax)                       # top right unless it covers data or text
+        return fig
+
+    # writes output/normal/ and output/soft/ (PNG x2, PDF, SVG, TIFF + checks each)
+    ps.save_modes(draw, "003_Li6PS5Cl_bulk_DOS", folder=".")
 
 Everything here follows the decisions recorded in the skill's SKILL.md.
 """
@@ -1769,6 +1773,32 @@ def _embed_svg_fonts(path: Path) -> str:
     block = '<defs><style type="text/css">' + "".join(faces) + "</style></defs>"
     path.write_text(text[:start.end()] + block + text[start.end():], encoding="utf-8")
     return f"PASS svg: {len(faces)} font face(s) embedded as a subset ({len(chars)} characters)"
+
+
+def save_modes(draw, name: str, folder: str | Path = ".",
+               modes: tuple[str, ...] = MODES) -> dict[str, list[str]]:
+    """Draw and save one figure in every colour mode, tidily:
+
+        <folder>/output/normal/<name>_normal.png|_transparent.png|.pdf|.svg|.tif|_checks.txt
+        <folder>/output/soft/<name>_soft....
+
+    draw() builds and returns a NEW figure (ps.new_figure inside it, colours from a
+    ColorRegistry created inside it); it is called once per mode, after apply(mode).
+    Returns {mode: checks}. The style is set back to "normal" afterwards."""
+    modes = tuple(modes)
+    if not modes or any(m not in MODES for m in modes) or len(set(modes)) != len(modes):
+        raise ValueError(f"modes must be a non-empty selection of {MODES}, got {modes!r}")
+    results = {}
+    try:
+        for mode in modes:
+            apply(mode=mode)
+            fig = draw()
+            if not isinstance(fig, mpl.figure.Figure):
+                raise TypeError("draw() must return the figure it built (return fig)")
+            results[mode] = save(fig, f"{name}_{mode}", Path(folder) / "output" / mode)
+    finally:
+        apply(mode="normal")
+    return results
 
 
 def save(fig, name: str, outdir: str | Path = ".") -> list[str]:

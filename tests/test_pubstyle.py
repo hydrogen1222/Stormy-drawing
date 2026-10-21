@@ -361,7 +361,8 @@ def template_is_guarded_then_runs_end_to_end():
     assert "Traceback" not in r.stderr, r.stderr
     # 2. filled in: runs and produces every output without FAIL
     t = np.linspace(0, 10, 50)
-    np.savetxt(folder / "data.dat", np.column_stack([t, t ** 0.5]), header="t  y")
+    assert sorted(p.name for p in folder.iterdir()) == ["README.md", "archive", "data", "plot.py"]
+    np.savetxt(folder / "data" / "data.dat", np.column_stack([t, t ** 0.5]), header="t  y")
     s = plot.read_text(encoding="utf-8")
     for old, new in (("__DATA_FILE__", "data.dat"), ("__X_MEANING__", "time (ps)"),
                      ("__Y_MEANING__", "signal (a.u.)"), ("__SERIES_KEY__", "Li"),
@@ -372,9 +373,41 @@ def template_is_guarded_then_runs_end_to_end():
     r = run_py(plot, cwd=folder)
     assert r.returncode == 0, r.stdout + r.stderr
     name = folder.name
-    for suffix in (".png", "_transparent.png", ".pdf", ".svg", ".tif", "_checks.txt"):
-        assert (folder / f"{name}{suffix}").exists(), f"missing {name}{suffix}"
-    assert "FAIL" not in (folder / f"{name}_checks.txt").read_text(encoding="utf-8")
+    # tidy: the folder top level stays five entries, every output sits in output/<mode>/
+    assert sorted(p.name for p in folder.iterdir()) == ["README.md", "archive", "data", "output", "plot.py"]
+    assert sorted(p.name for p in (folder / "output").iterdir()) == ["normal", "soft"]
+    for mode in ("normal", "soft"):
+        for suffix in (".png", "_transparent.png", ".pdf", ".svg", ".tif", "_checks.txt"):
+            f = folder / "output" / mode / f"{name}_{mode}{suffix}"
+            assert f.exists(), f"missing {f.relative_to(folder)}"
+        report = (folder / "output" / mode / f"{name}_{mode}_checks.txt").read_text(encoding="utf-8")
+        assert "FAIL" not in report and f"colour mode {mode}" in report
+    # the user has chosen: only that mode is drawn
+    s = plot.read_text(encoding="utf-8").replace('MODES = ("normal", "soft")', 'MODES = ("soft",)')
+    plot.write_text(s, encoding="utf-8")
+    shutil.rmtree(folder / "output")
+    r = run_py(plot, cwd=folder)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert [p.name for p in (folder / "output").iterdir()] == ["soft"]
+
+
+@test
+def save_modes_validates_and_leaves_the_style_normal():
+    def draw():
+        fig, ax = ps.new_figure()
+        ax.plot([0, 1], [0, 1], color=ps.ColorRegistry(TMP / "sm_colors.json").color("Li"))
+        ax.set_xlabel("x"); ax.set_ylabel("y")
+        return fig
+    raises(ValueError, ps.save_modes, draw, "f", TMP / "sm", ("pastel",), match="modes must be")
+    raises(ValueError, ps.save_modes, draw, "f", TMP / "sm", (), match="modes must be")
+    raises(ValueError, ps.save_modes, draw, "f", TMP / "sm", ("soft", "soft"), match="modes must be")
+    raises(TypeError, ps.save_modes, lambda: None, "f", TMP / "sm", match="return the figure")
+    res = ps.save_modes(draw, "f", TMP / "sm")
+    assert set(res) == {"normal", "soft"}
+    for r in res.values():
+        no_fail(r)
+    assert ps._STATE["mode"] == "normal"
+    assert (TMP / "sm" / "output" / "soft" / "f_soft.pdf").exists()
 
 
 @test
