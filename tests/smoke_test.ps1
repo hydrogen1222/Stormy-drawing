@@ -97,6 +97,11 @@ try {
     if ((Get-Content -Raw $styleFile) -notmatch "(?m)^STYLE_VERSION") { Fail "update-style: not replaced" }
     if (-not (Get-ChildItem (P @($P1, "figures", "_style", "archive")) -Filter "pubstyle_unversioned_*.py")) { Fail "update-style: no archive" }
     Ok "--update-style replaces and archives an old style copy"
+
+    # 8. reading VASP files, the style checker, edge cases, SVG fonts, init_figure and the template
+    $pylog = & $Py (P @($Repo, "tests", "test_pubstyle.py")) 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { Write-Host $pylog; Fail "tests\test_pubstyle.py" }
+    Ok "tests\test_pubstyle.py"
 } finally {
     if (Test-Path -LiteralPath $Tmp) { Remove-Item -LiteralPath $Tmp -Recurse -Force }
 }

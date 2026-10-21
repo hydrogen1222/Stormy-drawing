@@ -9,7 +9,8 @@ Example:
     python init_figure.py ~/projects/Li6PS5Cl_doping Li6PS5Cl_bulk_DOS
     -> figures/004_Li6PS5Cl_bulk_DOS/ with plot.py, README.md, archive/
 
-On first use it also creates figures/_style/ with this project's copy of
+The project root must already exist (a mistyped path is an error, not a new
+folder tree). On first use it also creates figures/_style/ with this project's copy of
 pubstyle.py and an empty color registry colors.json. Both commands also check
 that copy: if it is older than this skill's pubstyle.py (or has no version at
 all), the old copy moves to figures/_style/archive/ and the new one replaces
@@ -64,20 +65,51 @@ def sync_style(style: Path) -> None:
               "figure folder and check the new *_checks.txt.")
 
 
+# names Windows refuses as folder names, whatever the extension
+_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+             *(f"LPT{i}" for i in range(1, 10))}
+
+
+def bad_name(name: str) -> str | None:
+    """Why `name` cannot be a figure name, or None if it is fine."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.+-]*", name):
+        return "Name must be English letters, digits, _ . + - only (no spaces, no Chinese)."
+    if re.match(r"\d{3}(_|$)", name):
+        return "Give the name without the number; the number is added automatically."
+    if name.endswith("."):
+        return "Name must not end with a dot (Windows cannot create such a folder)."
+    if name.split(".")[0].upper() in _RESERVED:
+        return f"'{name}' is a reserved device name on Windows; choose another name."
+    return None
+
+
+def project_root(arg: str) -> Path | None:
+    """The project folder, which must exist. Prints the reason and returns None if not."""
+    root = Path(arg).expanduser().resolve()
+    if not root.is_dir():
+        print(f"Project folder not found: {root}\n"
+              "Check the path; nothing was created. (Create the folder yourself if it is new.)")
+        return None
+    return root
+
+
 def main() -> int:
     if len(sys.argv) == 3 and sys.argv[1] == "--update-style":
-        sync_style(Path(sys.argv[2]).expanduser().resolve() / "figures" / "_style")
+        root = project_root(sys.argv[2])
+        if root is None:
+            return 2
+        sync_style(root / "figures" / "_style")
         return 0
     if len(sys.argv) != 3:
         print(__doc__)
         return 2
-    root = Path(sys.argv[1]).expanduser().resolve()
-    name = sys.argv[2].strip()
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.+-]*", name):
-        print("Name must be English letters, digits, _ . + - only (no spaces, no Chinese).")
+    root = project_root(sys.argv[1])
+    if root is None:
         return 2
-    if re.fullmatch(r"\d{3}_.*", name):
-        print("Give the name without the number; the number is added automatically.")
+    name = sys.argv[2].strip()
+    problem = bad_name(name)
+    if problem:
+        print(problem)
         return 2
 
     figures = root / "figures"

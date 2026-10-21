@@ -1,4 +1,4 @@
-"""Shared figure style for Stormy's projects (the `plotting` skill).
+"""Shared figure style for computational materials-science projects (the `plotting` skill).
 
 One copy of this file lives in each project at figures/_style/pubstyle.py
 (made by init_figure.py). Every figure's plot.py imports it, so changing the
@@ -36,9 +36,11 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib import font_manager  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap, to_hex, to_rgb  # noqa: E402
+from matplotlib.path import Path as MPath  # noqa: E402
 from matplotlib.text import Text  # noqa: E402
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
+logging.getLogger("fontTools").setLevel(logging.ERROR)     # "FFTM NOT subset" etc. while embedding SVG fonts
 
 # Windows consoles and pipes often use a legacy code page (e.g. GBK); printing
 # Å, − or ² must not crash the script there.
@@ -52,7 +54,9 @@ for _stream in (sys.stdout, sys.stderr):
 # match the skill installed in the project: run
 #   python <skill>/scripts/init_figure.py --update-style <project>
 # before drawing; it replaces an older copy (the old one goes to _style/archive/).
-STYLE_VERSION = "0.7.0"
+#   0.8.0: check_figure now audits the real fonts, sizes, weights, line widths,
+#          tick directions, grids and frames; SVG files embed a font subset.
+STYLE_VERSION = "0.8.0"
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
@@ -91,7 +95,7 @@ CANVAS_CM = {"standard": (8.0, 6.0), "tall": (6.0, 8.0), "strip": (3.0, 8.0)}
 
 # Fixed frame position inside each canvas (left, bottom, right, top margins in
 # cm). Every figure of one canvas type has its frame at exactly the same place,
-# so panels line up when Stormy assembles them in GIMP.
+# so panels line up when they are assembled in an image editor.
 MARGINS_CM = {
     "standard": (1.55, 1.25, 0.35, 0.35),
     "tall": (1.55, 1.25, 0.35, 0.35),
@@ -263,6 +267,7 @@ def add_colorbar(fig, ax, mappable, label: str):
     pos = ax.get_position()
     w_fig = fig.get_figwidth() / CM
     cax = fig.add_axes((pos.x1 + 0.25 / w_fig, pos.y0, 0.3 / w_fig, pos.height))
+    cax._pubstyle_colorbar = True          # lets check_figure tell it from the main frame
     cb = fig.colorbar(mappable, cax=cax)
     cb.set_label(label, fontsize=LABEL_PT)
     cb.outline.set_linewidth(FRAME_LW)
@@ -274,6 +279,8 @@ def add_colorbar(fig, ax, mappable, label: str):
 # ---------------------------------------------------------------- axis limits
 
 def _nice_step(span: float, max_ticks: int = 6) -> float:
+    if not (math.isfinite(span) and span > 0):
+        raise ValueError(f"cannot choose tick steps for an axis span of {span!r}")
     raw = span / (max_ticks - 1)
     mag = 10 ** math.floor(math.log10(raw))
     for m in (1, 2, 2.5, 5, 10):
@@ -291,10 +298,19 @@ def nice_limits(ax, data_max: float, data_min: float = 0.0, axis: str = "y",
     quantities without a natural zero. pad_low (in units of one major step)
     leaves room below the lowest point so markers do not sit on the frame.
     """
+    if not (math.isfinite(data_max) and math.isfinite(data_min)):
+        raise ValueError("nice_limits: the data range is not finite (NaN or inf in the data?)")
+    if start_at_zero and data_max <= 0:
+        raise ValueError(
+            f"nice_limits: the data maximum is {data_max:g}, so there is nothing above zero "
+            "to draw. For all-zero or negative data pass start_at_zero=False and data_min.")
     lo = 0.0 if start_at_zero else data_min
     span = data_max - lo
     hi_needed = data_max + headroom * span
     lo_needed = lo if start_at_zero else data_min - headroom * span
+    if hi_needed - lo_needed <= 0:             # flat data: open a small window around it
+        pad = abs(data_max) * 0.05 or 0.5
+        hi_needed, lo_needed = data_max + pad, lo - pad
     step = _nice_step(hi_needed - lo_needed, max_ticks)
     lo_t = math.floor(lo_needed / step + 1e-9) * step
     hi_t = math.ceil(hi_needed / step - 1e-9) * step
@@ -651,7 +667,9 @@ def gradient_fill(ax, x, y, color, alpha_top: float = 0.75, zorder: float = 1):
     im = ax.imshow(img if sign > 0 else img[::-1], extent=extent, origin="lower",
                    aspect="auto", zorder=zorder, interpolation="bilinear")
     poly = ax.fill_between(x, y, color="none", lw=0)
-    im.set_clip_path(poly.get_paths()[0], transform=ax.transData)
+    # NaN gaps split the fill into several polygons: clip to all of them
+    clip = MPath.make_compound_path(*poly.get_paths())
+    im.set_clip_path(clip, transform=ax.transData)
     return im
 
 
@@ -672,15 +690,40 @@ def gap_arrow(ax, x0: float, x1: float, y: float, text_fmt: str = "{:.2f} eV",
 
 
 def incar_value(incar_path: str | Path, tag: str):
-    """Value of one INCAR tag as written (string), or None if absent."""
-    pat = re.compile(rf"^\s*{re.escape(tag)}\s*=\s*([^#!\n]+)", re.I | re.M)
-    m = pat.search(Path(incar_path).read_text(encoding="utf-8", errors="replace"))
-    return m.group(1).strip() if m else None
+    """Value of one INCAR tag as written (string), or None if absent.
+
+    Understands comments (# and !) and several tags on one line separated by
+    ';' (e.g. "ICHAIN = 0 ; LCLIMB = .TRUE."). The first occurrence wins."""
+    want = tag.strip().upper()
+    text = Path(incar_path).read_text(encoding="utf-8", errors="replace")
+    for line in text.splitlines():
+        line = re.split(r"[#!]", line, maxsplit=1)[0]
+        for part in line.split(";"):
+            key, eq, val = part.partition("=")
+            if eq and key.strip().upper() == want:
+                return val.strip()
+    return None
 
 
-def incar_true(incar_path: str | Path, tag: str) -> bool:
+_NO_DEFAULT = object()
+
+
+def incar_true(incar_path: str | Path, tag: str, default=_NO_DEFAULT) -> bool:
+    """True if the INCAR tag is switched on (.TRUE., T, .T., TRUE).
+
+    A tag that is not in the file has no safe answer: VASP defaults differ between
+    tags and versions (for LCLIMB, VTST documents disagree). So an absent tag raises
+    ValueError unless you pass default=True/False yourself; if you do, say so in the
+    figure README."""
     v = incar_value(incar_path, tag)
-    return bool(v) and v.strip(".").upper().startswith("T")
+    if v is None:
+        if default is _NO_DEFAULT:
+            raise ValueError(
+                f"{tag} is not set in {incar_path}. Its default depends on the VASP/VTST "
+                f"version, so do not guess: write {tag} into the INCAR copy, or pass "
+                "default=True/False and state that assumption in the README.")
+        return bool(default)
+    return v.strip(".").upper().startswith("T")
 
 
 def smooth_density(H, sigma_bins: float, periodic: bool = True):
@@ -841,7 +884,7 @@ def read_bands(folder: str | Path = ".", eigenval: str = "EIGENVAL",
     labels = [lab.replace("$|$", "|") for lab in labels]
 
     if eig.shape[0] == 2:
-        raise ValueError("ISPIN=2 band structures are not supported yet; ask Stormy")
+        raise ValueError("ISPIN=2 band structures are not supported yet; ask the user")
     nocc = int(round(nelect / 2))
     out = Bands()
     out.x, out.ticks, out.labels = x, ticks, labels
@@ -858,7 +901,8 @@ def read_bands(folder: str | Path = ".", eigenval: str = "EIGENVAL",
         m = re.search(r"E-fermi\s*:\s*(-?[\d.]+)",
                       (folder / outcar).read_text(errors="replace")) if (folder / outcar).exists() else None
         if not m:
-            raise ValueError("metal (bands cross the Fermi level) or ISPIN=2, which is not supported yet; metals need OUTCAR for E-fermi")
+            raise ValueError(f"the bands cross the Fermi level (metal), so the zero is E-fermi: "
+                             f"copy the calculation's {outcar} into {folder} as well")
         out.zero_eV = float(m.group(1))
         out.vbm = out.cbm = out.gap = out.direct = None
     else:
@@ -880,7 +924,6 @@ def band_energy_range(bands: Bands, above_cbm: float = 3.0, group_gap: float = 1
     group touching the VBM (bands separated by > group_gap eV start a new
     group) to about 3 eV above the CBM, both rounded to whole eV."""
     e = bands.energy[0]
-    top = 0.0
     lows = sorted(((e[:, b].min(), e[:, b].max()) for b in range(e.shape[1])
                    if e[:, b].max() <= 1e-6), key=lambda t: -t[1])
     bottom = 0.0
@@ -889,7 +932,7 @@ def band_energy_range(bands: Bands, above_cbm: float = 3.0, group_gap: float = 1
             break
         bottom = min(bottom, lo)
     lo = math.floor(bottom - 0.5)
-    up = (bands.cbm[1] if bands.cbm else top) + above_cbm
+    up = (bands.cbm[1] if bands.cbm else 0.0) + above_cbm
     return float(lo), float(math.ceil(up))
 
 
@@ -983,12 +1026,15 @@ def _group_orbitals(cols: np.ndarray, nspin: int) -> dict[str, np.ndarray]:
 
 def read_dos(folder: str | Path = ".", formula_units: float | None = None,
              doscar: str = "DOSCAR", poscar: str = "POSCAR",
-             eigenval: str = "EIGENVAL", outcar: str = "OUTCAR") -> Dos:
+             eigenval: str = "EIGENVAL", outcar: str = "OUTCAR",
+             assume_metal: bool = False) -> Dos:
     """Read a DOS calculation from copies of DOSCAR, POSCAR (or CONTCAR) and
     EIGENVAL in `folder`. formula_units is how many formula units the cell holds
     (Li6PS5Cl cell with 4 formula units -> 4); it must be given, the DOS is
     divided by it. Zero: VBM from EIGENVAL for insulators, E-fermi from DOSCAR
-    for metals."""
+    for metals. Without EIGENVAL an insulator cannot be told from a metal, so the
+    function stops; pass assume_metal=True only for a system you know is metallic
+    (zero = E-fermi, no gap)."""
     if not formula_units or formula_units <= 0:
         raise ValueError("formula_units is required (number of formula units in the "
                          "cell); write the value into the figure README")
@@ -1028,14 +1074,22 @@ def read_dos(folder: str | Path = ".", formula_units: float | None = None,
     out.source = f"{doscar}, {p.name}, {eigenval}"
     ev = folder / eigenval
     metal, vbm_abs, cbm_abs = True, None, None
-    if ev.exists() and nspin == 1:
+    if nspin == 2:
+        raise ValueError("ISPIN=2 DOS: zero must be chosen by hand for now; ask the user")
+    if ev.exists():
         nelect, _k, _w, eig = _read_eigenval(ev)
         nocc = int(round(nelect / 2))
-        if 0 < nocc < eig.shape[2]:
+        if nocc >= eig.shape[2]:
+            raise ValueError(f"{eigenval} has no empty band (NBANDS is too small), so the "
+                             "gap cannot be located; rerun with more bands")
+        if nocc > 0:
             vbm_abs, cbm_abs = eig[0, :, nocc - 1].max(), eig[0, :, nocc].min()
             metal = cbm_abs <= vbm_abs
-    elif nspin == 2:
-        raise ValueError("ISPIN=2 DOS: zero must be chosen by hand for now; ask Stormy")
+    elif not assume_metal:
+        raise FileNotFoundError(
+            f"{ev} not found. The zero (VBM for an insulator, E-fermi for a metal) and the "
+            f"gap come from EIGENVAL: copy it into {folder}. For a system you know is "
+            "metallic you may pass assume_metal=True.")
     out.metal = bool(metal)
     out.zero_eV = float(efermi) if metal else float(vbm_abs)
     out.energy = energy - out.zero_eV
@@ -1073,6 +1127,11 @@ def plot_dos(ax, dos: Dos, reg: "ColorRegistry", xlim=None, kind="elements",
     ps.place_legend(ax) after any extra labels."""
     lo, hi = xlim or dos_energy_range(dos)
     sel = (dos.energy >= lo) & (dos.energy <= hi)
+    if not sel.any():
+        raise ValueError(f"no DOS points between {lo:g} and {hi:g} eV (relative to the zero); "
+                         "check xlim")
+    if kind == "total" and not total:
+        raise ValueError('nothing to draw: kind="total" needs total=True')
     e = dos.energy
     spin_sign = [1.0, -1.0][:dos.nspin]
     curves = []
@@ -1184,14 +1243,136 @@ def _check_overlaps(fig, r) -> list[str]:
     return out + notes
 
 
+def _weight_num(w) -> int:
+    if isinstance(w, (int, float)):
+        return int(w)
+    return int(font_manager.weight_dict.get(str(w), 400))
+
+
+def _all_axes(fig) -> list:
+    """Every axes of the figure, including child axes (the top axis of an Arrhenius plot)."""
+    out, seen = [], set()
+
+    def walk(ax):
+        if id(ax) in seen:
+            return
+        seen.add(id(ax))
+        out.append(ax)
+        for child in ax.child_axes:
+            walk(child)
+
+    for ax in fig.axes:
+        walk(ax)
+    return out
+
+
+def _audit_style(fig) -> dict[str, list[str]]:
+    """Measure what is really on the figure (not what apply() was asked to do):
+    font family and weight of every text, font sizes by role, line widths,
+    tick direction/width/length, grids, frame. Needs a drawn figure so tick
+    labels exist. Returns {topic: [problem, ...]}; an empty list means fine."""
+    font = _STATE["font"]
+    bad = {"font": [], "size": [], "weight": [], "line": [], "axes": []}
+
+    def text(t, want_pt, what):
+        s = t.get_text()
+        if not s or not t.get_visible():
+            return
+        who = f"{what} '{s[:24]}'"
+        if t.get_fontname() != font:
+            bad["font"].append(f"{who} is set in {t.get_fontname()}")
+        if abs(t.get_fontsize() - want_pt) > 0.05:
+            bad["size"].append(f"{who} is {t.get_fontsize():g} pt, must be {want_pt:g} pt")
+        if _weight_num(t.get_fontweight()) < 700:
+            bad["weight"].append(f"{who} is not bold")
+
+    for key in ("mathtext.rm", "mathtext.it", "mathtext.bf", "mathtext.sf", "mathtext.cal"):
+        if not str(mpl.rcParams[key]).startswith(font):
+            bad["font"].append(f"{key} is {mpl.rcParams[key]!r}, formulas must use {font}")
+
+    children = {id(c) for ax in fig.axes for c in ax.child_axes}
+    for ax in _all_axes(fig):
+        is_colorbar = getattr(ax, "_pubstyle_colorbar", False)
+        for axis, nm in ((ax.xaxis, "x"), (ax.yaxis, "y")):
+            for t in axis.get_majorticklabels() + axis.get_minorticklabels():
+                text(t, TICK_PT, f"{nm} tick label")
+            text(axis.label, LABEL_PT, f"{nm} axis title")
+            # read the tick objects themselves: get_tick_params() only reports values
+            # that were set explicitly, not the ones that came from rcParams
+            for which, ticks, want_len in (("major", axis.get_major_ticks(), MAJOR_LEN),
+                                           ("minor", axis.get_minor_ticks(), MINOR_LEN)):
+                for tk in ticks:
+                    direction = getattr(tk, "_tickdir", None)
+                    if direction not in (None, "out"):
+                        bad["axes"].append(f"{nm} {which} ticks point {direction}, must point out")
+                    mark = tk.tick1line if tk.tick1line.get_visible() else tk.tick2line
+                    if not mark.get_visible():
+                        continue
+                    if abs(mark.get_markeredgewidth() - FRAME_LW) > 0.01:
+                        bad["axes"].append(f"{nm} {which} tick width is "
+                                           f"{mark.get_markeredgewidth():g} pt, must be {FRAME_LW:g} pt")
+                    if abs(mark.get_markersize() - want_len) > 0.01:
+                        bad["axes"].append(f"{nm} {which} tick length is "
+                                           f"{mark.get_markersize():g} pt, must be {want_len:g} pt")
+            if any(tk.gridline.get_visible()
+                   for tk in axis.get_major_ticks() + axis.get_minor_ticks()):
+                bad["axes"].append(f"{nm} axis has grid lines (no grids allowed)")
+        if not is_colorbar and id(ax) not in children:
+            for side, sp in ax.spines.items():
+                if not sp.get_visible():
+                    bad["axes"].append(f"frame side '{side}' is hidden (the frame must be closed)")
+                elif abs(sp.get_linewidth() - FRAME_LW) > 0.01:
+                    bad["axes"].append(f"frame side '{side}' is {sp.get_linewidth():g} pt, must be {FRAME_LW:g} pt")
+        for t in ax.texts:
+            text(t, ANNOT_PT, "text")
+        leg = ax.get_legend()
+        if leg is not None:
+            for t in leg.get_texts():
+                text(t, LEGEND_PT, "legend text")
+        for ln in ax.get_lines():
+            if ln.get_visible() and _is_visible_style(ln.get_linestyle()) \
+                    and abs(ln.get_linewidth() - DATA_LW) > 0.01:
+                bad["line"].append(f"line '{ln.get_label()}' is {ln.get_linewidth():g} pt, "
+                                   f"must be {DATA_LW:g} pt")
+        for coll in ([] if is_colorbar else ax.collections):    # colorbar dividers are not data lines
+            if type(coll).__name__ == "LineCollection" and coll.get_visible():
+                widths = [w for w in np.atleast_1d(coll.get_linewidths()) if w > 0]
+                if any(abs(w - DATA_LW) > 0.01 for w in widths):
+                    bad["line"].append(f"line collection (error bars?) is {max(widths):g} pt, "
+                                       f"must be {DATA_LW:g} pt")
+    for t in fig.texts:
+        text(t, ANNOT_PT, "figure text")
+    return bad
+
+
+def _fmt_problems(items: list[str], limit: int = 5) -> str:
+    items = list(dict.fromkeys(items))               # drop exact repeats, keep order
+    more = f"; +{len(items) - limit} more" if len(items) > limit else ""
+    return "; ".join(items[:limit]) + more
+
+
 def check_figure(fig) -> list[str]:
     """Return lines 'PASS ...' / 'FAIL ...' / 'NOTE ...'."""
     out = []
     font = _STATE["font"]
+    fig.canvas.draw()                                # tick labels exist only after a draw
+    audit = _audit_style(fig)
     out.append(f"NOTE style: pubstyle {STYLE_VERSION}")
-    out.append(f"{'NOTE' if _STATE['standin'] else 'PASS'} font: "
-               + (f"{font} used as a DRAFT stand-in for Arial; redraw on a machine with Arial"
-                  if _STATE["standin"] else "Arial"))
+    if _STATE["standin"]:
+        out.append(f"NOTE font: {font} used as a DRAFT stand-in for Arial; "
+                   "redraw on a machine with Arial")
+    out.append("FAIL font: " + _fmt_problems(audit["font"]) if audit["font"]
+               else (f"PASS font: every text and formula is set in {font}"
+                     if not _STATE["standin"] else "PASS font: every text and formula uses the one font"))
+    out.append("FAIL text size: " + _fmt_problems(audit["size"]) if audit["size"]
+               else f"PASS text size: axis titles {LABEL_PT} pt, ticks {TICK_PT} pt, "
+                    f"legend {LEGEND_PT} pt, labels {ANNOT_PT} pt")
+    out.append("FAIL text weight: " + _fmt_problems(audit["weight"]) if audit["weight"]
+               else "PASS text weight: all text is bold")
+    out.append("FAIL line width: " + _fmt_problems(audit["line"]) if audit["line"]
+               else f"PASS line width: all lines are {DATA_LW:g} pt")
+    out.append("FAIL axes: " + _fmt_problems(audit["axes"]) if audit["axes"]
+               else "PASS axes: closed frame, ticks out, no grid, tick sizes as specified")
 
     bad = []
     for t, s in _texts(fig):
@@ -1203,7 +1384,6 @@ def check_figure(fig) -> list[str]:
     out.append("FAIL text: Unicode or plain-text super/subscripts in " + repr(bad)
                if bad else "PASS text: super/subscripts are rendered as math")
 
-    fig.canvas.draw()
     r = fig.canvas.get_renderer()
     fb = fig.bbox
     cut = []
@@ -1266,9 +1446,60 @@ def _save_tiff(fig, path: Path) -> None:
                                dpi=(TIFF_DPI, TIFF_DPI))
 
 
+def _embed_svg_fonts(path: Path) -> str:
+    """matplotlib writes SVG text as real <text> (editable) but only names the font.
+    Add the glyphs the figure uses as an @font-face subset (base64 TrueType), so a
+    browser shows the SVG in the right font on any machine. Returns a check line.
+    Inkscape and Illustrator ignore embedded web fonts; there Arial must be installed."""
+    import base64
+    import html
+    try:
+        from fontTools import subset
+    except ImportError:
+        return "NOTE svg: fontTools not installed; fonts are named in the SVG but not embedded"
+    text = path.read_text(encoding="utf-8")
+    family = _STATE["font"]
+    chars = set(html.unescape("".join(re.findall(r">([^<]+)<", text)))) - set("\r\n\t")
+    # which (italic, bold) faces the text uses: matplotlib writes separate
+    # font-style / font-weight properties in each style="..." attribute
+    variants = set()
+    for m in re.finditer(r'style="([^"]*font-family[^"]*)"', text):
+        style = m.group(1).lower()
+        fs = re.search(r"font-style:\s*(\w+)", style)
+        fw = re.search(r"font-weight:\s*(\w+)", style)
+        variants.add((bool(fs) and fs.group(1) in ("italic", "oblique"),
+                      bool(fw) and fw.group(1) in ("bold", "600", "700", "800", "900")))
+    variants = variants or {(False, True)}
+    faces = []
+    for italic, bold in sorted(variants):
+        prop = font_manager.FontProperties(family=family, weight="bold" if bold else "normal",
+                                           style="italic" if italic else "normal")
+        src = font_manager.findfont(prop, fallback_to_default=False)
+        opts = subset.Options()
+        opts.notdef_outline = True
+        if src.lower().endswith(".ttc"):
+            opts.font_number = 0
+        ttf = subset.load_font(src, opts)
+        sub = subset.Subsetter(opts)
+        sub.populate(text="".join(sorted(chars)))
+        sub.subset(ttf)
+        buf = io.BytesIO()
+        ttf.save(buf)
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        faces.append(f"@font-face{{font-family:'{family}';font-style:{'italic' if italic else 'normal'};"
+                     f"font-weight:{'bold' if bold else 'normal'};"
+                     f"src:url(data:font/ttf;base64,{b64}) format('truetype');}}")
+    start = re.search(r"<svg\b[^>]*>", text)
+    if not start:
+        return "NOTE svg: could not find the <svg> tag; fonts not embedded"
+    block = '<defs><style type="text/css">' + "".join(faces) + "</style></defs>"
+    path.write_text(text[:start.end()] + block + text[start.end():], encoding="utf-8")
+    return f"PASS svg: {len(faces)} font face(s) embedded as a subset ({len(chars)} characters)"
+
+
 def save(fig, name: str, outdir: str | Path = ".") -> list[str]:
-    """Save name.png (white, 600 dpi), name_transparent.png, name.pdf, name.svg,
-    name.tif (white, 1200 dpi, RGB, LZW) and name_checks.txt.
+    """Save name.png (white, 600 dpi), name_transparent.png, name.pdf, name.svg
+    (font subset embedded), name.tif (white, 1200 dpi, RGB, LZW) and name_checks.txt.
     Prints the checks; returns them."""
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -1278,6 +1509,10 @@ def save(fig, name: str, outdir: str | Path = ".") -> list[str]:
     fig.savefig(outdir / f"{name}_transparent.png", dpi=600, transparent=True)
     fig.savefig(outdir / f"{name}.pdf")
     fig.savefig(outdir / f"{name}.svg")
+    try:
+        checks.append(_embed_svg_fonts(outdir / f"{name}.svg"))
+    except Exception as exc:                      # embedding must never lose the figure
+        checks.append(f"NOTE svg: fonts not embedded ({type(exc).__name__}: {exc})")
     _save_tiff(fig, outdir / f"{name}.tif")
     (outdir / f"{name}_checks.txt").write_text("\n".join(checks) + "\n", encoding="utf-8")
     plt.close(fig)
@@ -1285,5 +1520,5 @@ def save(fig, name: str, outdir: str | Path = ".") -> list[str]:
     for line in checks:
         print("  " + line)
     if any(c.startswith("FAIL") for c in checks):
-        print("  -> fix every FAIL before showing this figure to Stormy")
+        print("  -> fix every FAIL before showing this figure to the user")
     return checks

@@ -14,7 +14,7 @@
   ps.save(fig, "001_Li6PS5Cl_bulk_DOS")
   open("README.md", "a").write(ps.dos_summary(d))
   ```
-  把 `DOSCAR`、`POSCAR`、`EIGENVAL` 复制进图文件夹。`formula_units`（晶胞里有几个化学式单元）**必须自己给**，函数不猜；写进 README。零点：绝缘体取 EIGENVAL 里所有 k 点的价带顶，金属取 DOSCAR 里的费米能级。带隙取自 EIGENVAL，不取态密度边缘。
+  把 `DOSCAR`、`POSCAR`、`EIGENVAL` 复制进图文件夹。缺 `EIGENVAL` 时 `read_dos` 会报错（没有它分不出绝缘体和金属，也没有带隙）；确知是金属时才用 `assume_metal=True`。`formula_units`（晶胞里有几个化学式单元）**必须自己给**，函数不猜；写进 README。零点：绝缘体取 EIGENVAL 里所有 k 点的价带顶，金属取 DOSCAR 里的费米能级。带隙取自 EIGENVAL，不取态密度边缘。
 - 按元素或按轨道画需要计算时设 `LORBIT = 11`（或 10）；DOSCAR 里没有分波态密度时只能画总的，`plot_dos` 会报错并提示。自旋极化（ISPIN=2）的态密度暂不支持，`read_dos` 会直接报错。
 - 默认能量范围由 `ps.dos_energy_range` 按下面的规则算，`plot_dos(..., xlim=(lo, hi))` 可以覆盖，覆盖时在 README 里写理由。
 - **能量零点**：绝缘体放在价带顶（VBM），从本征值里找（例如 vaspkit 输出的带边信息，或 EIGENVAL/vasprun.xml 中占据态的最高本征值），不用 OUTCAR 里的 E-fermi，因为绝缘体的费米能级在带隙里的位置是随意的。横轴写 `r"$E-E_{\rm VBM}$ (eV)"`。只有金属才用费米能级，写 `r"$E-E_{\rm F}$ (eV)"`。
@@ -30,7 +30,7 @@
 
 ## 能带
 
-- 画布 `tall`（6 cm × 8 cm）。配态密度时，右边另画一张 `strip`（3 cm × 8 cm）的态密度窄条，**两张纵轴范围完全一致**，窄条不显示纵轴数字（`ax.tick_params(labelleft=False)`），横轴是态密度。Stormy 在 GIMP 里左右拼接。
+- 画布 `tall`（6 cm × 8 cm）。配态密度时，右边另画一张 `strip`（3 cm × 8 cm）的态密度窄条，**两张纵轴范围完全一致**，窄条不显示纵轴数字（`ax.tick_params(labelleft=False)`），横轴是态密度。之后在图像编辑软件里左右拼接。
 - 零点同态密度（价带顶），纵轴 `r"$E-E_{\rm VBM}$ (eV)"`，零点画水平参考虚线。
 - **读数据和画图直接用 `pubstyle.py` 里的函数**，不要自己写（0.6.0 起）：
   ```python
@@ -44,7 +44,7 @@
 - **两种 k 点写法都支持**：普通 PBE 能带（整条路径都有权重）；HSE06 的"SCF 网格 + 零权重路径点"（vaspkit 251）——有零权重点时只画零权重点，网格点不画，但价带顶按所有点（含网格）找。KPOINTS + KPOINTS_OPT 的写法（输出在 vasprun.xml 里）暂不支持。
 - 路径中间的断开（如 U|K）自动识别，k 距离按真实倒格矢计算。读数据后先检查 `b.off_path`：为 True 说明带边在 SCF 网格上而不在画出的路径上，README 要写明。
 - 自旋极化（ISPIN=2）的能带暂不支持，`read_bands` 会直接报错；真遇到再加（计划：向上实线、向下虚线）。
-- **检查数据本身**：硅这类简并点（Γ 处价带顶三重简并）若三条带差 0.02 eV 以上，说明计算没收敛（EDIFF 太松或迭代太少），先告诉 Stormy 重算，不要照画。
+- **检查数据本身**：硅这类简并点（Γ 处价带顶三重简并）若三条带差 0.02 eV 以上，说明计算没收敛（EDIFF 太松或迭代太少），先告诉用户重算，不要照画。
 - 高对称路径用 vaspkit 的 303 功能生成（按晶体对称性自动给路径），路径和 KPATH 文件来源写进 README。
 - 高对称点处画灰色细竖线；横轴刻度标签用正确符号：`r"$\rm\Gamma$"`，不能写成 G；路径断开处标成 `"X|U"`。横轴不画次刻度，不写横轴标题。
 - 普通能带全部用一种深色（`"0.15"`），线宽 1.0 磅（`ps.DATA_LW`）。价带顶和导带底各画一个小实心圆点（`ps.CATEGORICAL[1]` 蓝、`ps.CATEGORICAL[0]` 红，`clip_on=False`），之间用 `ps.gap_arrow(ax, 0.0, e_cbm, y=k位置, vertical=True, text_fmt="{:.2f} eV\n(direct)")` 标带隙，数值和 direct 分两行，免得文字横跨高对称点竖线（间接带隙写 indirect）。
@@ -60,7 +60,7 @@
 - 每个中间结构画一个空心圆；连线用 `spline.dat` 的样条插值，不自己拟合。
 - **能垒取中间结构里的最高能量**，不取插值曲线的最高点，标在最高点上方，两位小数，README 写明。
 - 起点和终点能量不同（不对称路径）时，正向、逆向两个能垒都标出。
-- **爬坡图像**：读这次计算的 INCAR，`ps.incar_true(path_to_INCAR_copy, "LCLIMB")`。为真时把最高的那个点画成实心圆；为假时全部空心，并在 README 写"未使用爬坡图像，能垒可能偏低"。（INCAR 同样要复制进图文件夹。）
+- **爬坡图像**：读这次计算的 INCAR，`ps.incar_true(path_to_INCAR_copy, "LCLIMB")`。为真时把最高的那个点画成实心圆；为假时全部空心，并在 README 写"未使用爬坡图像，能垒可能偏低"。（INCAR 同样要复制进图文件夹。）INCAR 里没写 `LCLIMB` 时，`incar_true` 会报错而不是猜：它的默认值随 VASP/VTST 版本而异，请在 INCAR 副本里明确写出；确实要假定时用 `default=True/False`，并把这个假定写进 README。同一行用分号写的多个标签（`ICHAIN = 0 ; LCLIMB = .TRUE.`）能正确识别。
 - 纵轴用 `ps.nice_limits(ax, emax, headroom=0.25, pad_low=0.25)`：上面给数值标注留空，下面不让圆点压在图框上。
 - 几条路径比较：放在同一张图，横轴统一用迁移距离，颜色 `reg.color("path A", "structure")` 这类。
 

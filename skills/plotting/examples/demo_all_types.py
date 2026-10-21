@@ -270,3 +270,15 @@ checks = ps.check_figure(fig)
 assert any(c.startswith("FAIL legend") for c in checks), "hand-made legend was not caught"
 ps.plt.close(fig)
 print("self-test: hand-made legend correctly rejected")
+
+# a figure that breaks the style in five ways at once: every one must be reported
+fig, ax = ps.new_figure()
+ax.plot([0, 1], [0, 1], color=reg.color("S"), lw=3.0)                          # line width
+ax.set_xlabel("Time (ps)", fontsize=14, fontfamily="DejaVu Sans", fontweight="normal")  # font, size, weight
+ax.grid(True)                                                                  # grid
+ax.tick_params(direction="in")                                                 # tick direction
+checks = ps.check_figure(fig)
+for topic in ("FAIL font", "FAIL text size", "FAIL text weight", "FAIL line width", "FAIL axes"):
+    assert any(c.startswith(topic) for c in checks), f"style violation not caught: {topic}"
+ps.plt.close(fig)
+print("self-test: wrong font, size, weight, line width, grid and tick direction correctly rejected")
