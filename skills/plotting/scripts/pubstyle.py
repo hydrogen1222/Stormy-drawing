@@ -56,7 +56,11 @@ for _stream in (sys.stdout, sys.stderr):
 # before drawing; it replaces an older copy (the old one goes to _style/archive/).
 #   0.8.0: check_figure now audits the real fonts, sizes, weights, line widths,
 #          tick directions, grids and frames; SVG files embed a font subset.
-STYLE_VERSION = "0.8.0"
+#   0.9.0: band/DOS readers take the filled-band count from the EIGENVAL occupations
+#          (spin-orbit, odd electron counts), the gap and direct/indirect from all
+#          k-points, last E-fermi from OUTCAR; colors.json is locked and written
+#          atomically; fake bold is detected; palette 2 (colour-blind safe).
+STYLE_VERSION = "0.9.0"
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
@@ -117,10 +121,20 @@ MARKER_SIZE = 4.5
 
 # ---------------------------------------------------------------- colors
 
-# Unordered categories (elements, structures, methods). Soft tones; this order
-# passes the colorblind adjacent-pair check. Never generate a 7th color: use
-# line styles or marker shapes, or split the figure.
-CATEGORICAL = ["#C8553D", "#3D6FB6", "#C98A1E", "#2A9D8F", "#6B5BA8", "#D0628E"]
+# Unordered categories (elements, structures, methods). Palette 2 was searched, not
+# picked by eye: EVERY pair of the six differs by CIEDE2000 >= 17 for normal vision
+# AND for protan, deutan and tritan simulation (Machado 2009), and the lightness
+# L* of the six is spread (40 to 68, no two closer than 5) so they also stay apart in grayscale.
+# Palette 1 (red/blue/amber/teal/purple/pink) had pairs that fell together under
+# colour-vision deficiency; projects that already hold a colors.json keep it until
+# `init_figure.py --update-style` archives that file.
+# Never generate a 7th color: use line styles or marker shapes, or split the figure.
+PALETTES = {
+    1: ["#C8553D", "#3D6FB6", "#C98A1E", "#2A9D8F", "#6B5BA8", "#D0628E"],
+    2: ["#3D6FB6", "#CA5974", "#0DACA3", "#968F02", "#A39AFE", "#5B642D"],
+}
+PALETTE_VERSION = 2      # the palette new projects get; stored in colors.json
+CATEGORICAL = PALETTES[PALETTE_VERSION]
 
 # Ordered quantities (temperature, concentration, strain): light to dark.
 # "warm" is the default; "cool" only for a second ordered quantity.
@@ -151,8 +165,13 @@ def sequential_cmap(ramp: str = "cool", light: str = "#FFFFFF"):
 
 # Familiar hues for common elements, used when still free in that group.
 # Only a preference: any other element simply gets the next free color.
-PREFERRED = {"S": "#C98A1E", "Cl": "#2A9D8F", "P": "#6B5BA8", "Li": "#3D6FB6",
-             "O": "#C8553D", "Na": "#D0628E", "Br": "#C8553D"}
+PREFERRED_BY = {
+    1: {"S": "#C98A1E", "Cl": "#2A9D8F", "P": "#6B5BA8", "Li": "#3D6FB6",
+        "O": "#C8553D", "Na": "#D0628E", "Br": "#C8553D"},
+    2: {"S": "#968F02", "Cl": "#0DACA3", "P": "#A39AFE", "Li": "#3D6FB6",
+        "O": "#CA5974", "Na": "#5B642D", "Br": "#CA5974"},
+}
+PREFERRED = PREFERRED_BY[PALETTE_VERSION]
 
 GROUPS = ("element", "pair", "structure", "series")
 
@@ -171,30 +190,108 @@ class ColorRegistry:
 
     def __init__(self, path: str | Path | None = None):
         self.path = Path(path) if path else STYLE_DIR / "colors.json"
-        self.data = {g: {} for g in GROUPS}
-        if self.path.exists():
+        self.palette = PALETTE_VERSION
+        self.data = self._load()
+        if self.palette != PALETTE_VERSION:
+            print(f"NOTE color registry: {self.path} uses the older palette {self.palette}; "
+                  f"it stays as it is so existing figures keep their colors. Palette "
+                  f"{PALETTE_VERSION} is colour-blind safe; run init_figure.py --update-style "
+                  "to switch (the old file is archived, figures change colour on redraw).")
+
+    # -- storage ---------------------------------------------------------
+    def _load(self) -> dict:
+        data = {g: {} for g in GROUPS}
+        if not self.path.exists():
+            return data
+        try:
             stored = json.loads(self.path.read_text(encoding="utf-8") or "{}")
-            for g, d in stored.items():
-                self.data.setdefault(g, {}).update(d)
+            if not isinstance(stored, dict) or not all(
+                    isinstance(d, dict) and all(isinstance(c, str) for c in d.values())
+                    for k, d in stored.items() if k != "_palette"):
+                raise ValueError("unexpected structure")
+        except (ValueError, OSError) as e:
+            raise ValueError(
+                f"{self.path} is damaged ({e}). It holds the fixed colors of this project; "
+                f"restore it from figures/_style/archive/ or from version control. Deleting "
+                f"it starts new assignments and can change colors of existing figures, so "
+                f"ask the user before doing that.") from None
+        for g, d in stored.items():
+            if g == "_palette":
+                continue
+            data.setdefault(g, {}).update(d)
+        # a file with colors but without the key predates palette 2
+        pal = stored.get("_palette", 1 if any(data.values()) else PALETTE_VERSION)
+        if pal not in PALETTES:
+            raise ValueError(f"{self.path} was made by a newer pubstyle (palette {pal}); "
+                             "update the style copy with init_figure.py --update-style")
+        self.palette = pal
+        return data
+
+    def _write(self) -> None:
+        out = dict(self.data)
+        out["_palette"] = self.palette
+        tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, self.path)                       # atomic: never a half-written file
+
+    class _Lock:
+        """Cross-process lock (a lock file made with O_EXCL); several figures
+        drawn in parallel must not overwrite each other's new colors."""
+
+        def __init__(self, path: Path, timeout: float = 15.0):
+            self.path, self.timeout = path.with_name(path.name + ".lock"), timeout
+
+        def __enter__(self):
+            import time
+            t0 = time.time()
+            while True:
+                try:
+                    fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                    os.close(fd)
+                    return self
+                except FileExistsError:
+                    if time.time() - t0 > self.timeout:
+                        try:                              # stale lock of a crashed run
+                            if time.time() - self.path.stat().st_mtime > self.timeout:
+                                self.path.unlink()
+                                continue
+                        except FileNotFoundError:
+                            continue
+                        raise RuntimeError(f"cannot lock the color registry ({self.path}); "
+                                           "another figure is writing it, or delete the stale "
+                                           "lock file if no plot is running") from None
+                    time.sleep(0.05)
+
+        def __exit__(self, *exc):
+            try:
+                self.path.unlink()
+            except FileNotFoundError:
+                pass
 
     def color(self, key: str, group: str = "element") -> str:
         if group not in GROUPS:
             raise ValueError(f"group must be one of {GROUPS}")
-        table = self.data[group]
-        if key in table:
-            return table[key]
-        used = set(table.values())
-        free = [c for c in CATEGORICAL if c not in used]
-        if not free:
-            raise RuntimeError(
-                f"All {len(CATEGORICAL)} colors of group '{group}' are taken; cannot add "
-                f"'{key}'. Distinguish further series by line style or marker, or split "
-                "the figure. Do not invent a new color.")
-        pick = PREFERRED.get(key) if group == "element" else None
-        chosen = pick if pick in free else free[0]
-        table[key] = chosen
-        self.path.write_text(json.dumps(self.data, indent=2, ensure_ascii=False) + "\n",
-                             encoding="utf-8")
+        if group == "element":
+            key = element_symbol(key)                    # Li_sv -> Li
+        if key in self.data[group]:
+            return self.data[group][key]
+        with self._Lock(self.path):
+            self.data = self._load()                     # pick up colors other runs added
+            table = self.data[group]
+            if key in table:
+                return table[key]
+            used = set(table.values())
+            palette = PALETTES[self.palette]
+            free = [c for c in palette if c not in used]
+            if not free:
+                raise RuntimeError(
+                    f"All {len(palette)} colors of group '{group}' are taken; cannot add "
+                    f"'{key}'. Distinguish further series by line style or marker, or split "
+                    "the figure. Do not invent a new color.")
+            pick = PREFERRED_BY[self.palette].get(key) if group == "element" else None
+            chosen = pick if pick in free else free[0]
+            table[key] = chosen
+            self._write()
         print(f"color registry: {group} '{key}' -> {chosen} (new, recorded in {self.path})")
         return chosen
 
@@ -204,8 +301,45 @@ class ColorRegistry:
 _STATE = {"font": None, "standin": False}
 
 
+def _face_of(prop):
+    """The font FILE matplotlib really resolves for these properties, as the
+    font manager's entry (has .name, .weight, .style, .fname)."""
+    path = font_manager.findfont(prop)
+    for f in font_manager.fontManager.ttflist:
+        if f.fname == path:
+            return f
+    return None
+
+
+def _face_problem(prop, want_italic: bool = False) -> str | None:
+    """Why the resolved font file is not a genuine bold (italic) face, or None.
+    Without e.g. arialbd.ttf matplotlib silently draws the REGULAR file while
+    the text still says weight=bold; only the file tells the truth."""
+    face = _face_of(prop)
+    if face is None:
+        return "no font file found"
+    if _weight_num(face.weight) < 600:
+        return f"{Path(face.fname).name} is a regular-weight file, not a bold face"
+    if want_italic and face.style not in ("italic", "oblique"):
+        return f"{Path(face.fname).name} is not an italic face"
+    return None
+
+
+def _require_real_faces(font: str) -> None:
+    for style, want_italic, need in (("normal", False, "bold"), ("italic", True, "bold italic")):
+        prop = font_manager.FontProperties(family=font, weight="bold", style=style)
+        why = _face_problem(prop, want_italic)
+        if why:
+            raise RuntimeError(
+                f"{font} has no real {need} face ({why}). The style needs genuine bold and "
+                f"bold-italic files (for Arial: arialbd.ttf and arialbi.ttf); a regular file "
+                f"would be drawn as fake bold. Follow references/setup.md, then delete "
+                f"matplotlib's font cache.")
+
+
 def apply() -> None:
     font, standin = _pick_font()
+    _require_real_faces(font)
     _STATE.update(font=font, standin=standin)
     mpl.rcParams.update({
         "font.family": "sans-serif", "font.sans-serif": [font],
@@ -805,6 +939,7 @@ def _read_eigenval(path: str | Path):
     per_band = 3 if ispin == 1 else 5
     kpts, wts = np.zeros((nk, 3)), np.zeros(nk)
     eig = np.zeros((ispin, nk, nb))
+    occ = np.zeros((ispin, nk, nb))
     i = 0
     for k in range(nk):
         kpts[k] = [float(x) for x in nums[i:i + 3]]
@@ -815,8 +950,71 @@ def _read_eigenval(path: str | Path):
             eig[0, k, b] = float(row[1])
             if ispin == 2:
                 eig[1, k, b] = float(row[2])
+                occ[0, k, b], occ[1, k, b] = float(row[3]), float(row[4])
+            else:
+                occ[0, k, b] = float(row[2])
             i += per_band
-    return nelect, kpts, wts, eig
+    if occ.max() > 1.5:                 # some versions write 2 per filled band
+        occ = occ / 2.0
+    return nelect, kpts, wts, eig, occ
+
+
+def _occupied_bands(nelect: int, wts: np.ndarray, occ: np.ndarray):
+    """Number of completely filled bands, taken from the OCCUPATIONS in EIGENVAL
+    (they are right for ISPIN=1, spin-orbit coupling, and any electron count),
+    not from NELECT/2. Returns None when a band is partially filled (metal).
+    Only k-points with non-zero weight are used: the zero-weight path points of
+    a hybrid band calculation carry no occupations of their own."""
+    idx = np.where(wts > 0)[0]
+    if len(idx) == 0:
+        idx = np.arange(len(wts))
+    o = occ[0, idx]
+    if np.any((o > 0.02) & (o < 0.98)):
+        return None                                  # fractional occupation: metal
+    filled = (o > 0.5).sum(axis=1)
+    if filled.min() != filled.max():
+        return None                                  # the filling changes with k: metal
+    nocc = int(filled[0])
+    per_band = nelect / nocc if nocc else float("inf")
+    if abs(per_band - 2) > 1e-6 and abs(per_band - 1) > 1e-6:
+        raise ValueError(
+            f"EIGENVAL has {nocc} filled bands for NELECT = {nelect}: that is neither 2 "
+            "electrons per band (normal) nor 1 (spin-orbit coupling). An odd electron count "
+            "with ISPIN = 1 cannot be an insulator; check ISPIN/MAGMOM and rerun")
+    return nocc
+
+
+def _band_edges(nelect, wts, eig, occ, what="EIGENVAL"):
+    """(nocc, v, c) with v, c = top filled / bottom empty band at every k-point,
+    or None for a metal (partly filled band, or valence and conduction bands
+    overlapping at some k)."""
+    nocc = _occupied_bands(nelect, wts, occ)
+    if nocc is None:
+        return None
+    if nocc == 0:
+        raise ValueError(f"{what}: no filled band")
+    if nocc >= eig.shape[2]:
+        raise ValueError(f"{what} has no empty band (NBANDS is too small), so the gap cannot "
+                         "be located; rerun with more bands")
+    v, c = eig[0, :, nocc - 1], eig[0, :, nocc]
+    if c.min() <= v.max():
+        return None
+    return nocc, v, c
+
+
+def _is_direct(v: np.ndarray, c: np.ndarray, tol: float = 2e-3) -> bool:
+    """Direct gap = ONE k-point holds both band edges (within tol eV, so that
+    degenerate or symmetry-equivalent points count, e.g. U and K of fcc).
+    Comparing positions along the path is not enough."""
+    return bool(np.any((v >= v.max() - tol) & (c <= c.min() + tol)))
+
+
+def _last_efermi(path: Path):
+    """E-fermi of the LAST ionic step / electronic run in an OUTCAR, or None."""
+    if not path.exists():
+        return None
+    m = re.findall(r"E-fermi\s*:\s*(-?[\d.]+)", path.read_text(errors="replace"))
+    return float(m[-1]) if m else None
 
 
 class Bands:
@@ -826,8 +1024,13 @@ class Bands:
       energy   (nspin, nk, nbands) in eV, relative to the zero
       ticks    x of each high-symmetry point;  labels  their axis labels
       metal    True if bands cross the Fermi level
-      vbm, cbm (x, E) of the band edges on the path (None for metals)
-      gap, direct, zero_eV (absolute energy of the zero), source (str)
+      vbm, cbm (x, E) of the band edges on the path (None for metals, and None
+               when an edge lies off the drawn path, see off_path)
+      gap      the real gap over ALL k-points in EIGENVAL (SCF mesh included);
+               gap_path the gap of the drawn path alone
+      direct   one k-point holds both edges (all k-points)
+      off_path a band edge is not on the drawn path
+      zero_eV (absolute energy of the zero), source (str)
     """
 
 
@@ -837,7 +1040,7 @@ def read_bands(folder: str | Path = ".", eigenval: str = "EIGENVAL",
     """Read a band calculation from copies of EIGENVAL, POSCAR (or CONTCAR) and
     KPATH.in in `folder`. OUTCAR is only needed for metals (E-fermi)."""
     folder = Path(folder)
-    nelect, kpts, wts, eig = _read_eigenval(folder / eigenval)
+    nelect, kpts, wts, eig, occ = _read_eigenval(folder / eigenval)
     p = folder / poscar
     if not p.exists() and (folder / "CONTCAR").exists():
         p = folder / "CONTCAR"
@@ -885,36 +1088,40 @@ def read_bands(folder: str | Path = ".", eigenval: str = "EIGENVAL",
 
     if eig.shape[0] == 2:
         raise ValueError("ISPIN=2 band structures are not supported yet; ask the user")
-    nocc = int(round(nelect / 2))
     out = Bands()
     out.x, out.ticks, out.labels = x, ticks, labels
     out.source = f"{eigenval}, {p.name}, {kpath}" + (
         " (HSE-type: zero-weight path points only)" if hybrid else "")
     out.hybrid = hybrid
-    metal = True
-    if 0 < nocc < eig.shape[2]:
-        top_all = eig[0, :, nocc - 1].max()           # all k, mesh included
-        bot_all = eig[0, :, nocc].min()
-        metal = bot_all <= top_all
-    out.metal = metal
-    if metal:
-        m = re.search(r"E-fermi\s*:\s*(-?[\d.]+)",
-                      (folder / outcar).read_text(errors="replace")) if (folder / outcar).exists() else None
-        if not m:
+    edges = _band_edges(nelect, wts, eig, occ, eigenval)
+    out.metal = edges is None
+    out.off_path = False
+    if edges is None:
+        ef = _last_efermi(folder / outcar)
+        if ef is None:
             raise ValueError(f"the bands cross the Fermi level (metal), so the zero is E-fermi: "
                              f"copy the calculation's {outcar} into {folder} as well")
-        out.zero_eV = float(m.group(1))
-        out.vbm = out.cbm = out.gap = out.direct = None
+        out.zero_eV = ef
+        out.vbm = out.cbm = out.gap = out.gap_path = out.direct = None
     else:
-        out.zero_eV = float(top_all)
-        v, c = path_e[0, :, nocc - 1], path_e[0, :, nocc]
-        iv, ic = int(np.argmax(v)), int(np.argmin(c))
-        out.vbm = (x[iv], v[iv] - out.zero_eV)
-        out.cbm = (x[ic], c[ic] - out.zero_eV)
-        out.gap = float(c[ic] - v[iv])
-        out.direct = bool(abs(x[iv] - x[ic]) < 1e-6 or np.allclose(path_k[iv], path_k[ic]))
-        out.off_path = bool(v[iv] < top_all - 1e-3 or c[ic] > bot_all + 1e-3)
+        nocc, v_all, c_all = edges                    # every k-point, SCF mesh included
         out.nocc = nocc
+        out.zero_eV = float(v_all.max())
+        out.gap = float(c_all.min() - v_all.max())    # the real gap, whatever the path
+        out.direct = _is_direct(v_all, c_all)
+        v, c = path_e[0, :, nocc - 1], path_e[0, :, nocc]
+        out.gap_path = float(c.min() - v.max())
+        tol = 2e-3
+        out.off_path = bool(v.max() < v_all.max() - tol or c.min() > c_all.min() + tol)
+        if out.off_path:
+            out.vbm = out.cbm = None                  # edges not on the drawn path: no markers
+        else:
+            both = np.where((v >= v.max() - tol) & (c <= c.min() + tol))[0]
+            iv = ic = int(both[0]) if len(both) else None
+            if iv is None:
+                iv, ic = int(np.argmax(v)), int(np.argmin(c))
+            out.vbm = (x[iv], v[iv] - out.zero_eV)
+            out.cbm = (x[ic], c[ic] - out.zero_eV)
     out.energy = path_e - out.zero_eV
     return out
 
@@ -932,7 +1139,7 @@ def band_energy_range(bands: Bands, above_cbm: float = 3.0, group_gap: float = 1
             break
         bottom = min(bottom, lo)
     lo = math.floor(bottom - 0.5)
-    up = (bands.cbm[1] if bands.cbm else 0.0) + above_cbm
+    up = (bands.gap if bands.gap is not None else 0.0) + above_cbm   # CBM relative to the VBM
     return float(lo), float(math.ceil(up))
 
 
@@ -955,7 +1162,7 @@ def plot_bands(ax, bands: Bands, ylim=None, mark_gap: bool = True):
     ax.yaxis.set_major_locator(mpl.ticker.MultipleLocator(step))
     ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator(2))
     ax.set_ylabel(r"$E-E_{\rm F}$ (eV)" if bands.metal else r"$E-E_{\rm VBM}$ (eV)")
-    if mark_gap and not bands.metal:
+    if mark_gap and not bands.metal and bands.vbm is not None:
         (xv, ev), (xc, ec) = bands.vbm, bands.cbm
         ax.plot([xv], [ev], "o", color=CATEGORICAL[1], ms=MARKER_SIZE, mew=0,
                 clip_on=False, zorder=3)
@@ -974,13 +1181,16 @@ def bands_summary(bands: Bands) -> str:
     """Lines for the figure README."""
     if bands.metal:
         return (f"- Data: {bands.source}\n- Metal: zero = E-fermi from OUTCAR "
-                f"({bands.zero_eV:.4f} eV)\n")
+                f"({bands.zero_eV:.4f} eV, last E-fermi in the file; take it from the SCF run "
+                "that made the charge density, a non-self-consistent band run can shift it)\n")
     s = (f"- Data: {bands.source}\n"
          f"- Zero: VBM = {bands.zero_eV:.4f} eV (highest occupied band, band "
          f"{bands.nocc}, over all k-points)\n"
-         f"- Gap on the path: {bands.gap:.3f} eV, {'direct' if bands.direct else 'indirect'}\n")
+         f"- Gap (all k-points in EIGENVAL): {bands.gap:.3f} eV, "
+         f"{'direct' if bands.direct else 'indirect'} (direct = one k-point holds both edges)\n")
     if bands.off_path:
-        s += "- Note: a band edge lies on the SCF mesh, not on the drawn path\n"
+        s += (f"- Note: a band edge lies off the drawn path (gap on the path alone: "
+              f"{bands.gap_path:.3f} eV); the figure carries no gap marker\n")
     return s
 
 
@@ -1000,12 +1210,19 @@ class Dos:
     """
 
 
+def element_symbol(name: str) -> str:
+    """Element symbol from a VASP/POTCAR name: Li_sv -> Li, Zn_2 -> Zn, Li -> Li.
+    Anything that does not look like such a name is returned unchanged."""
+    m = re.fullmatch(r"([A-Z][a-z]?)(?:[_/.-]\w*)?", name.strip())
+    return m.group(1) if m else name.strip()
+
+
 def _atom_symbols(poscar: Path) -> list[str]:
     lines = poscar.read_text(encoding="utf-8", errors="replace").splitlines()
     names, counts = lines[5].split(), lines[6].split()
     if not all(c.isdigit() for c in counts):
         raise ValueError(f"{poscar.name}: no element names in line 6 (VASP 4 format)")
-    return [n for n, c in zip(names, counts) for _ in range(int(c))]
+    return [element_symbol(n) for n, c in zip(names, counts) for _ in range(int(c))]
 
 
 def _group_orbitals(cols: np.ndarray, nspin: int) -> dict[str, np.ndarray]:
@@ -1077,14 +1294,12 @@ def read_dos(folder: str | Path = ".", formula_units: float | None = None,
     if nspin == 2:
         raise ValueError("ISPIN=2 DOS: zero must be chosen by hand for now; ask the user")
     if ev.exists():
-        nelect, _k, _w, eig = _read_eigenval(ev)
-        nocc = int(round(nelect / 2))
-        if nocc >= eig.shape[2]:
-            raise ValueError(f"{eigenval} has no empty band (NBANDS is too small), so the "
-                             "gap cannot be located; rerun with more bands")
-        if nocc > 0:
-            vbm_abs, cbm_abs = eig[0, :, nocc - 1].max(), eig[0, :, nocc].min()
-            metal = cbm_abs <= vbm_abs
+        nelect, _k, wts, eig, occ = _read_eigenval(ev)
+        edges = _band_edges(nelect, wts, eig, occ, eigenval)
+        if edges is not None:
+            metal = False
+            _n, v_all, c_all = edges
+            vbm_abs, cbm_abs = v_all.max(), c_all.min()
     elif not assume_metal:
         raise FileNotFoundError(
             f"{ev} not found. The zero (VBM for an insulator, E-fermi for a metal) and the "
@@ -1190,8 +1405,10 @@ def dos_summary(dos: Dos) -> str:
     """Lines for the figure README."""
     s = (f"- Data: {dos.source}\n- DOS divided by {dos.formula_units:g} formula unit(s) "
          "of the cell; no extra smoothing (broadening is the one used in the VASP run)\n")
+    s += ("- Element/orbital curves are projections onto spheres around the atoms (RWIGS); "
+          "they do not add up to the total DOS\n")
     if dos.metal:
-        s += f"- Metal: zero = E-fermi ({dos.zero_eV:.4f} eV)\n"
+        s += f"- Metal: zero = E-fermi ({dos.zero_eV:.4f} eV, from DOSCAR)\n"
     else:
         s += (f"- Zero: VBM = {dos.zero_eV:.4f} eV (from EIGENVAL, all k-points)\n"
               f"- Gap: {dos.gap:.3f} eV (EIGENVAL k-points, not the DOS edge)\n")
@@ -1285,10 +1502,19 @@ def _audit_style(fig) -> dict[str, list[str]]:
             bad["size"].append(f"{who} is {t.get_fontsize():g} pt, must be {want_pt:g} pt")
         if _weight_num(t.get_fontweight()) < 700:
             bad["weight"].append(f"{who} is not bold")
+        else:
+            why = _face_problem(t.get_fontproperties(), t.get_fontstyle() in ("italic", "oblique"))
+            if why:
+                bad["weight"].append(f"{who}: {why} (fake bold)")
 
     for key in ("mathtext.rm", "mathtext.it", "mathtext.bf", "mathtext.sf", "mathtext.cal"):
         if not str(mpl.rcParams[key]).startswith(font):
             bad["font"].append(f"{key} is {mpl.rcParams[key]!r}, formulas must use {font}")
+        else:
+            prop = font_manager.FontProperties(mpl.rcParams[key])
+            why = _face_problem(prop, "italic" in str(mpl.rcParams[key]))
+            if why:
+                bad["weight"].append(f"formulas ({key}): {why} (fake bold)")
 
     children = {id(c) for ax in fig.axes for c in ax.child_axes}
     for ax in _all_axes(fig):
@@ -1381,7 +1607,9 @@ def check_figure(fig) -> list[str]:
         plain = re.sub(r"\$[^$]*\$", "", s)
         if "^" in plain or "_" in plain:
             bad.append(s)
-    out.append("FAIL text: Unicode or plain-text super/subscripts in " + repr(bad)
+    out.append("FAIL text: Unicode or plain-text super/subscripts / underscores in " + repr(bad)
+               + ' -> write them as math, e.g. r"Na$_{\\rm 3}$PS$_{\\rm 4}$"; a VASP name such '
+               'as Li_sv is the POTCAR variant, label the element "Li"'
                if bad else "PASS text: super/subscripts are rendered as math")
 
     r = fig.canvas.get_renderer()

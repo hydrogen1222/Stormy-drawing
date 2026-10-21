@@ -384,8 +384,247 @@ def update_style_replaces_an_old_copy():
     style.write_text('STYLE_VERSION = "0.7.0"\n', encoding="utf-8")
     r = run_py(INIT, "--update-style", proj)
     assert "UPDATED" in r.stdout, r.stdout
-    assert re.search(r'^STYLE_VERSION = "0\.8\.0"', style.read_text(encoding="utf-8"), re.M)
+    assert re.search(r'^STYLE_VERSION = "0\.9\.0"', style.read_text(encoding="utf-8"), re.M)
     assert list((proj / "figures" / "_style" / "archive").glob("pubstyle_0.7.0_*.py"))
+
+
+# ---------------------------------------------------------------- principle-level checks
+
+def write_eigenval(folder: Path, pts, weights, bands_fn, nb, nelect, nocc_fn):
+    """EIGENVAL from arrays: pts (nk,3) fractional, bands_fn(k) -> nb energies,
+    nocc_fn(k) -> occupation list (or a number of filled bands)."""
+    lines = ["   2   2   1   1", "  0.1E+02 0.1E-09 0.1E-09 0.1E-09 0.5E-15", "  1.0E-04",
+             "  CAR", " toy", f"   {nelect}  {len(pts)}  {nb}"]
+    for k, w in zip(pts, weights):
+        occ = nocc_fn(k) if callable(nocc_fn) else nocc_fn
+        occ = [1.0 if i < occ else 0.0 for i in range(nb)] if isinstance(occ, int) else occ
+        lines += ["", f"  {k[0]:.8E} {k[1]:.8E} {k[2]:.8E}  {w:.8E}"]
+        for i, e in enumerate(bands_fn(k), 1):
+            lines.append(f"   {i}   {e:.6f}   {occ[i - 1]:.6f}")
+    (folder / "EIGENVAL").write_text("\n".join(lines) + "\n")
+
+
+def toy_path():
+    G, X, M = np.array([0, 0, 0.]), np.array([.5, 0, 0]), np.array([.5, .5, 0])
+    return np.array([a + (b - a) * t for a, b in ((G, X), (X, M), (M, G))
+                     for t in np.linspace(0, 1, 6)])
+
+
+@test
+def spin_orbit_filled_bands_come_from_occupations():
+    """With SOC every band holds ONE electron: NELECT/2 would give half the filled bands."""
+    f = make_vasp_files(TMP / "soc")
+    pts = toy_path()
+    bands = lambda k: np.array([-6, -5, -3 - 0.3 * np.cos(2 * np.pi * k).sum(), -2, 1.5, 2.5, 4, 5.])  # noqa: E731
+    write_eigenval(f, pts, [1 / len(pts)] * len(pts), bands, 8, 4, 4)     # 4 e-, 1 per band
+    b = ps.read_bands(f)
+    assert not b.metal and b.nocc == 4, (b.metal, getattr(b, "nocc", None))
+    top = bands(pts[0])[3]
+    assert abs(b.gap - (1.5 - top)) < 1e-4, b.gap
+
+
+@test
+def odd_electron_count_is_not_called_an_insulator():
+    f = make_vasp_files(TMP / "odd")
+    pts = toy_path()
+    bands = lambda k: np.array([-3, -1, 2.0, 4.0])  # noqa: E731
+    write_eigenval(f, pts, [1 / len(pts)] * len(pts), bands, 4, 5, 2)     # 5 e-, 2 filled bands
+    raises(ValueError, ps.read_bands, f, match="odd electron")
+    raises(ValueError, ps.read_dos, f, formula_units=1, match="odd electron")
+
+
+@test
+def partly_filled_band_is_a_metal_and_efermi_is_the_last_one():
+    f = make_vasp_files(TMP / "frac")
+    pts = toy_path()
+    bands = lambda k: np.array([-3, -1, 0.2 * np.cos(2 * np.pi * k).sum(), 4.0])  # noqa: E731
+    write_eigenval(f, pts, [1 / len(pts)] * len(pts), bands, 4, 5,
+                   lambda k: [1.0, 1.0, 0.5, 0.0])
+    raises(ValueError, ps.read_bands, f, match="OUTCAR")           # metal needs E-fermi
+    (f / "OUTCAR").write_text(" E-fermi :   1.1111     XC(G=0):  -9\n step 2\n"
+                              " E-fermi :   2.2222     XC(G=0):  -9\n")
+    b = ps.read_bands(f)
+    assert b.metal and abs(b.zero_eV - 2.2222) < 1e-9 and b.gap is None and b.vbm is None
+
+
+@test
+def direct_gap_means_one_k_point_holds_both_edges():
+    v, c = np.array([0.0, -.5, -1, 0.0]), np.array([3.0, 2.5, 2.2, 1.0])     # VBM at k0 and k3
+    assert ps._is_direct(v, c)                       # k3 holds VBM (degenerate with k0) and CBM
+    assert not ps._is_direct(np.array([0.0, -.5, -1, -2]), c)   # VBM only at k0, CBM at k3
+    # symmetry-equivalent points (U|K): equal energies at both, one of them has both edges
+    assert ps._is_direct(np.array([0.0, -1, 0.0]), np.array([1.0, 2.0, 1.0]))
+
+
+@test
+def direct_gap_on_a_path_that_returns_to_gamma():
+    """Edges at the first AND the last G (same k): positions along the path differ,
+    the gap is still direct."""
+    f = make_vasp_files(TMP / "gg")
+    pts = toy_path()
+    def bands(k):
+        g = 1.0 if np.allclose(k, 0) else 0.0
+        return np.array([-3, -1 - 0.0 * g + (0 if g else -1.0), 2.0 + (0 if g else 1.5), 4.0])
+    write_eigenval(f, pts, [1 / len(pts)] * len(pts), bands, 4, 4, 2)
+    b = ps.read_bands(f)
+    assert b.direct is True, b.direct
+    assert abs(b.vbm[0] - b.cbm[0]) < 1e-9          # markers stand on the same x
+
+
+@test
+def band_edge_off_the_path_gives_the_global_gap_and_no_marker():
+    """Hybrid run: SCF mesh points (weight>0) hold a higher VBM than the drawn path."""
+    f = make_vasp_files(TMP / "offpath")
+    path = toy_path()
+    R = np.array([.5, .5, .5])
+    pts = np.vstack([[R, [0.25, 0.25, 0.25]], path])
+    wts = [0.5, 0.5] + [0.0] * len(path)
+    def bands(k):
+        top = 0.6 if np.allclose(k, R) else 0.0
+        return np.array([-3, -1 + top, 2.0, 4.0])
+    write_eigenval(f, pts, wts, bands, 4, 4, 2)
+    b = ps.read_bands(f)
+    assert b.hybrid and b.off_path and b.vbm is None and b.cbm is None
+    assert abs(b.gap - (2.0 - (-1 + 0.6))) < 1e-6, b.gap          # CBM - highest VBM (at R)
+    assert b.gap < b.gap_path - 0.5
+    fig, ax = ps.new_figure("tall")
+    lo, hi = ps.plot_bands(ax, b)
+    assert hi >= b.gap + 2.9                          # window follows the real CBM
+    assert not [t for t in ax.texts if "eV" in t.get_text()], "no gap label when edge is off path"
+    assert "off the drawn path" in ps.bands_summary(b)
+    ps.plt.close(fig)
+
+
+@test
+def vasp_potcar_names_become_element_symbols():
+    assert [ps.element_symbol(n) for n in ("Li_sv", "Zn_2", "S_d", "Cl", "Na_pv", "Li")] == \
+        ["Li", "Zn", "S", "Cl", "Na", "Li"]
+    f = make_vasp_files(TMP / "potcar_names")
+    txt = (f / "POSCAR").read_text().replace("Li Cl", "Li_sv Cl")
+    (f / "POSCAR").write_text(txt)
+    d = ps.read_dos(f, formula_units=1)
+    assert set(d.elements) == {"Li", "Cl"}, set(d.elements)
+    reg = fresh_registry()
+    assert reg.color("Li_sv") == reg.color("Li")
+
+
+# ---------------------------------------------------------------- colour registry
+
+@test
+def registry_survives_parallel_writers():
+    path = TMP / "parallel" / "colors.json"
+    path.parent.mkdir()
+    code = ("import sys; sys.path.insert(0, sys.argv[1]); import pubstyle as ps; "
+            "ps.ColorRegistry(sys.argv[2]).color(sys.argv[3], 'series')")
+    procs = [subprocess.Popen([sys.executable, "-c", code, str(SKILL / "scripts"), str(path), f"s{i}"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                              env={**os.environ, "PUBSTYLE_ALLOW_STANDIN": "1", "MPLBACKEND": "Agg"})
+             for i in range(6)]
+    for pr in procs:
+        assert pr.wait(timeout=120) == 0, pr.stderr.read().decode()
+    import json
+    got = json.loads(path.read_text())["series"]
+    assert len(got) == 6 and len(set(got.values())) == 6, got        # no lost update, no duplicate
+    assert not list(path.parent.glob("*.tmp")) and not list(path.parent.glob("*.lock"))
+
+
+@test
+def damaged_registry_gives_a_clear_message():
+    path = TMP / "damaged" / "colors.json"
+    path.parent.mkdir()
+    for bad in ("{not json", '["a"]', '{"element": {"Li": 3}}'):
+        path.write_text(bad)
+        raises(ValueError, ps.ColorRegistry, path, match="damaged")
+
+
+@test
+def old_palette_registry_keeps_its_colors_until_updated():
+    import json
+    path = TMP / "oldpal" / "colors.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"element": {"Li": "#3D6FB6"}}))      # no _palette key = palette 1
+    reg = ps.ColorRegistry(path)
+    assert reg.palette == 1 and reg.color("Li") == "#3D6FB6"
+    new = reg.color("S")
+    assert new in ps.PALETTES[1] and new != "#3D6FB6"
+    assert json.loads(path.read_text())["_palette"] == 1
+    fresh = fresh_registry()
+    fresh.color("Li")
+    assert fresh.palette == ps.PALETTE_VERSION and fresh.color("Li") in ps.CATEGORICAL
+
+
+@test
+def init_figure_archives_colors_of_an_old_palette():
+    import json
+    proj = TMP / "palproj"
+    style = proj / "figures" / "_style"
+    style.mkdir(parents=True)
+    (style / "pubstyle.py").write_text('STYLE_VERSION = "0.8.0"\n')
+    (style / "colors.json").write_text(json.dumps({"element": {"Li": "#3D6FB6"}}))
+    r = run_py(INIT, "--update-style", proj)
+    assert "NEW PALETTE" in r.stdout, r.stdout
+    assert list((style / "archive").glob("colors_palette1_*.json"))
+    assert json.loads((style / "colors.json").read_text()) == {}
+
+
+# ---------------------------------------------------------------- colour science
+
+_M = {"protan": [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
+      "deutan": [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.011820, 0.042940, 0.968881]],
+      "tritan": [[1.255528, -0.076749, -0.178779], [-0.078411, 0.930809, 0.147602], [0.004733, 0.691367, 0.303900]]}
+
+
+def _lab(rgb):
+    from matplotlib.colors import to_rgb
+    c = np.asarray(to_rgb(rgb)) if isinstance(rgb, str) else np.asarray(rgb)
+    lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    xyz = (lin @ np.array([[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]]).T)
+    xyz = xyz / np.array([0.95047, 1.0, 1.08883])
+    f = np.where(xyz > 0.008856, np.cbrt(xyz), 7.787 * xyz + 16 / 116)
+    return np.array([116 * f[1] - 16, 500 * (f[0] - f[1]), 200 * (f[1] - f[2])])
+
+
+def _de76_cvd(c1, c2, kind):
+    from matplotlib.colors import to_rgb
+    def sim(c):
+        rgb = np.asarray(to_rgb(c))
+        if not kind:
+            return rgb
+        lin = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+        out = np.clip(lin @ np.array(_M[kind]).T, 0, 1)
+        return np.where(out <= 0.0031308, out * 12.92, 1.055 * out ** (1 / 2.4) - 0.055)
+    return float(np.linalg.norm(_lab(sim(c1)) - _lab(sim(c2))))
+
+
+@test
+def categorical_palette_is_colour_blind_safe_and_gray_distinct():
+    import itertools
+    assert len(ps.CATEGORICAL) == 6 and len(set(ps.CATEGORICAL)) == 6
+    for kind in (None, "protan", "deutan", "tritan"):
+        worst = min(_de76_cvd(a, b, kind) for a, b in itertools.combinations(ps.CATEGORICAL, 2))
+        assert worst > 15, f"{kind or 'normal vision'}: closest pair only {worst:.1f} apart (Lab)"
+    L = sorted(_lab(c)[0] for c in ps.CATEGORICAL)
+    assert min(np.diff(L)) >= 4.0, f"grayscale lightness too close: {np.round(L)}"
+    assert 35 <= L[0] and L[-1] <= 72, "colors too dark or too pale for thin lines on white"
+    for key, col in ps.PREFERRED.items():
+        assert col in ps.CATEGORICAL, f"preferred color of {key} is not in the palette"
+
+
+@test
+def fake_bold_is_caught_by_the_checker():
+    from matplotlib import font_manager as fm
+    font = ps._STATE["font"]
+    reg_file = fm.findfont(fm.FontProperties(family=font, weight="normal"))
+    bold_file = fm.findfont(fm.FontProperties(family=font, weight="bold"))
+    assert reg_file != bold_file, "test machine has no separate bold file"
+    assert ps._face_problem(fm.FontProperties(fname=reg_file, weight="bold")) is not None
+    assert ps._face_problem(fm.FontProperties(fname=bold_file, weight="bold")) is None
+    fig, ax = _good_figure()
+    ax.text(0.5, 0.5, "fake", fontproperties=fm.FontProperties(fname=reg_file, weight="bold", size=ps.ANNOT_PT),
+            transform=ax.transAxes)
+    checks = ps.check_figure(fig)
+    assert any(c.startswith("FAIL text weight") and "fake bold" in c for c in checks), checks
+    ps.plt.close(fig)
 
 
 # ---------------------------------------------------------------- no personal leftovers

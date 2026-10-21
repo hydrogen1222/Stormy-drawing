@@ -14,7 +14,7 @@
   ps.save(fig, "001_Li6PS5Cl_bulk_DOS")
   open("README.md", "a").write(ps.dos_summary(d))
   ```
-  把 `DOSCAR`、`POSCAR`、`EIGENVAL` 复制进图文件夹。缺 `EIGENVAL` 时 `read_dos` 会报错（没有它分不出绝缘体和金属，也没有带隙）；确知是金属时才用 `assume_metal=True`。`formula_units`（晶胞里有几个化学式单元）**必须自己给**，函数不猜；写进 README。零点：绝缘体取 EIGENVAL 里所有 k 点的价带顶，金属取 DOSCAR 里的费米能级。带隙取自 EIGENVAL，不取态密度边缘。
+  把 `DOSCAR`、`POSCAR`、`EIGENVAL` 复制进图文件夹。缺 `EIGENVAL` 时 `read_dos` 会报错（没有它分不出绝缘体和金属，也没有带隙）；确知是金属时才用 `assume_metal=True`。`formula_units`（晶胞里有几个化学式单元）**必须自己给**，函数不猜；写进 README。零点：绝缘体取 EIGENVAL 里所有 k 点的价带顶，金属取 DOSCAR 里的费米能级。带隙取自 EIGENVAL，不取态密度边缘。占据带数取自 EIGENVAL 的占据数列，不是 NELECT/2（自旋轨道耦合时每条带只放一个电子，NELECT/2 会少算一半）；电子数为奇数而 ISPIN=1 时程序报错，不会当成绝缘体。元素/轨道曲线是投影到各原子周围球内的结果，加起来不等于总态密度，README 里写明。
 - 按元素或按轨道画需要计算时设 `LORBIT = 11`（或 10）；DOSCAR 里没有分波态密度时只能画总的，`plot_dos` 会报错并提示。自旋极化（ISPIN=2）的态密度暂不支持，`read_dos` 会直接报错。
 - 默认能量范围由 `ps.dos_energy_range` 按下面的规则算，`plot_dos(..., xlim=(lo, hi))` 可以覆盖，覆盖时在 README 里写理由。
 - **能量零点**：绝缘体放在价带顶（VBM），从本征值里找（例如 vaspkit 输出的带边信息，或 EIGENVAL/vasprun.xml 中占据态的最高本征值），不用 OUTCAR 里的 E-fermi，因为绝缘体的费米能级在带隙里的位置是随意的。横轴写 `r"$E-E_{\rm VBM}$ (eV)"`。只有金属才用费米能级，写 `r"$E-E_{\rm F}$ (eV)"`。
@@ -47,7 +47,9 @@
 - **检查数据本身**：硅这类简并点（Γ 处价带顶三重简并）若三条带差 0.02 eV 以上，说明计算没收敛（EDIFF 太松或迭代太少），先告诉用户重算，不要照画。
 - 高对称路径用 vaspkit 的 303 功能生成（按晶体对称性自动给路径），路径和 KPATH 文件来源写进 README。
 - 高对称点处画灰色细竖线；横轴刻度标签用正确符号：`r"$\rm\Gamma$"`，不能写成 G；路径断开处标成 `"X|U"`。横轴不画次刻度，不写横轴标题。
-- 普通能带全部用一种深色（`"0.15"`），线宽 1.0 磅（`ps.DATA_LW`）。价带顶和导带底各画一个小实心圆点（`ps.CATEGORICAL[1]` 蓝、`ps.CATEGORICAL[0]` 红，`clip_on=False`），之间用 `ps.gap_arrow(ax, 0.0, e_cbm, y=k位置, vertical=True, text_fmt="{:.2f} eV\n(direct)")` 标带隙，数值和 direct 分两行，免得文字横跨高对称点竖线（间接带隙写 indirect）。
+- 普通能带全部用一种深色（`"0.15"`），线宽 1.0 磅（`ps.DATA_LW`）。价带顶和导带底各画一个小实心圆点（价带顶 `ps.CATEGORICAL[1]`、导带底 `ps.CATEGORICAL[0]`，`clip_on=False`；`ps.plot_bands` 已经这样画），之间用 `ps.gap_arrow(ax, 0.0, e_cbm, y=k位置, vertical=True, text_fmt="{:.2f} eV\n(direct)")` 标带隙，数值和 direct 分两行，免得文字横跨高对称点竖线（间接带隙写 indirect）。
+- 带隙和直接/间接取自 EIGENVAL 里**所有** k 点（杂化泛函的 SCF 网格也算），不是只看画出来的路径：直接带隙 = 同一个 k 点同时有价带顶和导带底（简并、对称等价的点按能量相同处理，不按横轴位置比）。带边不在画出的路径上时，图上不画带隙标记和数值，README 里写全局带隙和路径上的带隙（`bands.gap`、`bands.gap_path`）。
+- 金属的零点是 OUTCAR 里**最后一个** `E-fermi`；应取产生电荷密度的自洽（SCF）计算的 OUTCAR，非自洽能带计算的 E-fermi 可能有偏移，README 里写明用的是哪一个。
 - 能量范围规则同态密度，能带图和窄条用同一个范围。
 - 按元素着色的能带只在讨论成键时画。
 - 计算方法（PBE 还是 HSE06，HSE06 能带用的是哪种做法）写进 README，图上不写。

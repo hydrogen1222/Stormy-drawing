@@ -14,10 +14,14 @@ folder tree). On first use it also creates figures/_style/ with this project's c
 pubstyle.py and an empty color registry colors.json. Both commands also check
 that copy: if it is older than this skill's pubstyle.py (or has no version at
 all), the old copy moves to figures/_style/archive/ and the new one replaces
-it; figures drawn with the old copy must then be redrawn. colors.json is never
-touched. Standard library only.
+it; figures drawn with the old copy must then be redrawn. colors.json is left
+alone, except when the new style brings a new colour palette: then the old file
+is archived next to the old pubstyle.py and a fresh registry starts (old figures
+change colour when redrawn, and the archive lets you go back). Standard library
+only.
 """
 import datetime
+import json
 import re
 import shutil
 import sys
@@ -35,6 +39,36 @@ def style_version(path: Path) -> tuple[int, ...]:
     """STYLE_VERSION of a pubstyle.py; (0, 0, 0) for copies made before versions existed."""
     m = re.search(r'^STYLE_VERSION = "([\d.]+)"', path.read_text(encoding="utf-8"), re.M)
     return tuple(int(x) for x in m.group(1).split(".")) if m else (0, 0, 0)
+
+
+def palette_version(path: Path) -> int:
+    m = re.search(r'^PALETTE_VERSION = (\d+)', path.read_text(encoding="utf-8"), re.M)
+    return int(m.group(1)) if m else 1
+
+
+def sync_palette(style: Path, src: Path) -> None:
+    """A new colour palette needs a fresh colors.json; keep the old one in archive/."""
+    reg = style / "colors.json"
+    if not reg.exists():
+        return
+    try:
+        stored = json.loads(reg.read_text(encoding="utf-8") or "{}")
+    except ValueError:
+        print(f"WARNING: {reg} is damaged and was left alone; restore it from archive/ "
+              "or version control")
+        return
+    has_colors = any(isinstance(v, dict) and v for k, v in stored.items() if k != "_palette")
+    old = stored.get("_palette", 1 if has_colors else None)
+    new = palette_version(src)
+    if old is None or old >= new:
+        return
+    archive = style / "archive"
+    archive.mkdir(exist_ok=True)
+    keep = archive / f"colors_palette{old}_{datetime.date.today()}.json"
+    shutil.move(str(reg), str(keep))
+    reg.write_text("{}\n", encoding="utf-8")
+    print(f"NEW PALETTE ({old} -> {new}): colors.json archived to {keep}; the project starts "
+          "with an empty registry, so each element gets its new color on the next redraw.")
 
 
 def sync_style(style: Path) -> None:
@@ -60,6 +94,7 @@ def sync_style(style: Path) -> None:
         keep = archive / f"pubstyle_{label}_{datetime.date.today()}.py"
         shutil.move(str(dst), str(keep))
         shutil.copy2(src, dst)
+        sync_palette(style, src)
         print(f"UPDATED {dst}: {v(old)} -> {v(new)} (old copy: {keep})")
         print("Figures drawn with the old style must be redrawn: run plot.py in each "
               "figure folder and check the new *_checks.txt.")
