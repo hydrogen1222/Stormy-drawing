@@ -610,6 +610,37 @@ def categorical_palette_is_distinct_and_its_limits_are_known():
 
 
 @test
+def soft_mode_lowers_chroma_only_and_never_touches_the_registry():
+    import json
+    raises(ValueError, ps.apply, mode="pastel", match="mode must be")
+    try:
+        reg = fresh_registry()
+        normal = {k: reg.color(k) for k in ("Li", "S", "Cl")}
+        ps.apply(mode="soft")
+        for k, hexc in normal.items():
+            soft = reg.color(k)
+            L0, a0, b0 = ps._to_lab(hexc)
+            L1, a1, b1 = ps._to_lab(soft)
+            assert abs(L1 - L0) < 1.5, (k, L0, L1)                                  # same lightness
+            assert abs(np.hypot(a1, b1) / np.hypot(a0, b0) - ps.SOFT_CHROMA) < 0.04, k
+            assert soft != hexc
+        assert json.loads(reg.path.read_text())["element"]["Li"] == normal["Li"]    # file keeps normal hex
+        fig, ax = ps.new_figure("standard")
+        x_ = np.linspace(0, 1, 50)
+        im = ps.gradient_fill(ax, x_, np.sin(np.pi * x_), reg.color("Li"))
+        assert abs(im.get_array()[-1, 0, 3] - ps.SOFT_ALPHA_TOP) < 1e-6
+        ax.plot(x_, np.sin(np.pi * x_), color=reg.color("Li"))
+        ax.set_xlabel("x"); ax.set_ylabel("y")
+        checks = ps.check_figure(fig)
+        no_fail(checks)
+        assert any("colour mode soft" in c for c in checks)
+        ps.plt.close(fig)
+    finally:
+        ps.apply()                                   # default again
+    assert ps._STATE["mode"] == "normal" and ps.tone("#00468B") == "#00468B"
+
+
+@test
 def fake_bold_is_caught_by_the_checker():
     from matplotlib import font_manager as fm
     font = ps._STATE["font"]

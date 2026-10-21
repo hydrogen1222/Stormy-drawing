@@ -56,7 +56,7 @@ for _stream in (sys.stdout, sys.stderr):
 # before drawing; it replaces an older copy (the old one goes to _style/archive/).
 #   0.8.0: check_figure now audits the real fonts, sizes, weights, line widths,
 #          tick directions, grids and frames; SVG files embed a font subset.
-#   0.9.0: band/DOS readers take the filled-band count from the EIGENVAL occupations
+#   0.9.0: apply(mode="soft") for a low-saturation look; band/DOS readers take the filled-band count from the EIGENVAL occupations
 #          (spin-orbit, odd electron counts), the gap and direct/indirect from all
 #          k-points, last E-fermi from OUTCAR; colors.json is locked and written
 #          atomically; fake bold is detected; palette 2 (Lancet colours).
@@ -276,12 +276,12 @@ class ColorRegistry:
         if group == "element":
             key = element_symbol(key)                    # Li_sv -> Li
         if key in self.data[group]:
-            return self.data[group][key]
+            return tone(self.data[group][key])
         with self._Lock(self.path):
             self.data = self._load()                     # pick up colors other runs added
             table = self.data[group]
             if key in table:
-                return table[key]
+                return tone(table[key])
             used = set(table.values())
             palette = PALETTES[self.palette]
             free = [c for c in palette if c not in used]
@@ -295,12 +295,48 @@ class ColorRegistry:
             table[key] = chosen
             self._write()
         print(f"color registry: {group} '{key}' -> {chosen} (new, recorded in {self.path})")
-        return chosen
+        return tone(chosen)
 
 
 # ---------------------------------------------------------------- style
 
-_STATE = {"font": None, "standin": False}
+MODES = ("normal", "soft")
+SOFT_CHROMA = 0.60       # soft mode keeps 60 % of each colour's chroma, same lightness
+SOFT_ALPHA_TOP = 0.38    # gradient fills start this strong at the curve (normal: 0.55)
+
+_STATE = {"font": None, "standin": False, "mode": "normal"}
+
+
+def _to_lab(hexc: str) -> np.ndarray:
+    c = np.asarray(to_rgb(hexc))
+    lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    xyz = lin @ np.array([[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722],
+                          [0.0193, 0.1192, 0.9505]]).T / np.array([0.95047, 1.0, 1.08883])
+    f = np.where(xyz > 0.008856, np.cbrt(xyz), 7.787 * xyz + 16 / 116)
+    return np.array([116 * f[1] - 16, 500 * (f[0] - f[1]), 200 * (f[1] - f[2])])
+
+
+def _from_lab(lab: np.ndarray) -> str:
+    fy = (lab[0] + 16) / 116
+    f = np.array([fy + lab[1] / 500, fy, fy - lab[2] / 200])
+    xyz = np.where(f ** 3 > 0.008856, f ** 3, (f - 16 / 116) / 7.787) * np.array([0.95047, 1.0, 1.08883])
+    lin = np.linalg.inv(np.array([[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722],
+                                  [0.0193, 0.1192, 0.9505]])) @ xyz
+    lin = np.clip(lin, 0, 1)
+    c = np.where(lin <= 0.0031308, lin * 12.92, 1.055 * lin ** (1 / 2.4) - 0.055)
+    return to_hex(np.clip(c, 0, 1)).upper()
+
+
+def soften(hexc: str, keep: float = SOFT_CHROMA) -> str:
+    """Same hue and lightness, chroma multiplied by `keep` (0 = gray, 1 = unchanged)."""
+    lab = _to_lab(hexc)
+    return _from_lab(np.array([lab[0], lab[1] * keep, lab[2] * keep]))
+
+
+def tone(hexc: str) -> str:
+    """The colour as drawn in the current mode: unchanged in normal mode, softened
+    in soft mode. Use it for any palette colour taken by hand (e.g. CATEGORICAL[0])."""
+    return soften(hexc) if _STATE["mode"] == "soft" else hexc
 
 
 def _face_of(prop):
@@ -339,10 +375,15 @@ def _require_real_faces(font: str) -> None:
                 f"matplotlib's font cache.")
 
 
-def apply() -> None:
+def apply(mode: str = "normal") -> None:
+    """Install the style. mode="normal" (default): the palette as it is.
+    mode="soft": same hues and lightness at 60 % chroma and lighter gradient fills,
+    for a calm look; use it only when the user asks, and keep one mode per paper."""
+    if mode not in MODES:
+        raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
     font, standin = _pick_font()
     _require_real_faces(font)
-    _STATE.update(font=font, standin=standin)
+    _STATE.update(font=font, standin=standin, mode=mode)
     mpl.rcParams.update({
         "font.family": "sans-serif", "font.sans-serif": [font],
         "font.weight": "bold", "axes.labelweight": "bold",
@@ -788,9 +829,12 @@ def label_point(ax, x: float, y: float, s: str, gap_pt: float = 3.0, **kw):
 
 # ---------------------------------------------------------------- helpers
 
-def gradient_fill(ax, x, y, color, alpha_top: float = 0.55, zorder: float = 1):
+def gradient_fill(ax, x, y, color, alpha_top: float | None = None, zorder: float = 1):
     """XPS-style fill under a curve: strong at the curve, fading to clear at 0.
-    Draw the curve itself on top with ax.plot afterwards."""
+    alpha_top defaults to 0.55 (soft mode 0.38). Draw the curve itself on top with
+    ax.plot afterwards."""
+    if alpha_top is None:
+        alpha_top = SOFT_ALPHA_TOP if _STATE["mode"] == "soft" else 0.55
     x = np.asarray(x, float)
     y = np.asarray(y, float)
     peak = float(np.nanmax(np.abs(y))) or 1.0
@@ -1166,9 +1210,9 @@ def plot_bands(ax, bands: Bands, ylim=None, mark_gap: bool = True):
     ax.set_ylabel(r"$E-E_{\rm F}$ (eV)" if bands.metal else r"$E-E_{\rm VBM}$ (eV)")
     if mark_gap and not bands.metal and bands.vbm is not None:
         (xv, ev), (xc, ec) = bands.vbm, bands.cbm
-        ax.plot([xv], [ev], "o", color=CATEGORICAL[1], ms=MARKER_SIZE, mew=0,
+        ax.plot([xv], [ev], "o", color=tone(CATEGORICAL[1]), ms=MARKER_SIZE, mew=0,
                 clip_on=False, zorder=3)
-        ax.plot([xc], [ec], "o", color=CATEGORICAL[0], ms=MARKER_SIZE, mew=0,
+        ax.plot([xc], [ec], "o", color=tone(CATEGORICAL[0]), ms=MARKER_SIZE, mew=0,
                 clip_on=False, zorder=3)
         # arrow at the CBM: from E = 0 (VBM level) up to the CBM
         ax.annotate("", xy=(xc, ec), xytext=(xc, ev),
@@ -1585,7 +1629,7 @@ def check_figure(fig) -> list[str]:
     font = _STATE["font"]
     fig.canvas.draw()                                # tick labels exist only after a draw
     audit = _audit_style(fig)
-    out.append(f"NOTE style: pubstyle {STYLE_VERSION}")
+    out.append(f"NOTE style: pubstyle {STYLE_VERSION}, colour mode {_STATE['mode']}")
     if _STATE["standin"]:
         out.append(f"NOTE font: {font} used as a DRAFT stand-in for Arial; "
                    "redraw on a machine with Arial")

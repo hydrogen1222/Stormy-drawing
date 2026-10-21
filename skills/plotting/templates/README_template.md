@@ -32,7 +32,7 @@
 
 - 画布：standard（8 cm × 6 cm）/ tall / strip
 - 坐标范围及理由：
-- 颜色：来自 `figures/_style/colors.json`
+- 颜色：来自 `figures/_style/colors.json`；色调模式：normal / soft（删去不用的）
 
 ## 自查结果
 

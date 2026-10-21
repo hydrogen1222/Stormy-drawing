@@ -20,9 +20,10 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import pubstyle as ps  # noqa: E402
 
-out = Path(sys.argv[1] if len(sys.argv) > 1 else "demo_output")
+args = [a for a in sys.argv[1:] if a != "--soft"]
+out = Path(args[0] if args else "demo_output")
 out.mkdir(parents=True, exist_ok=True)
-ps.apply()
+ps.apply(mode="soft" if "--soft" in sys.argv else "normal")   # --soft: low-saturation look
 reg = ps.ColorRegistry(Path(tempfile.mkdtemp()) / "colors.json")
 g = lambda x, c, w, a: a * np.exp(-((x - c) / w) ** 2)  # noqa: E731
 
