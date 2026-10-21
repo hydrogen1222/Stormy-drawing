@@ -91,7 +91,14 @@ try {
     $tifCheck = "import sys, glob`nfrom PIL import Image`nfor f in glob.glob(sys.argv[1] + '/*/*/*.tif'):`n    im = Image.open(f)`n    assert im.mode == 'RGB' and im.info.get('compression') == 'tiff_lzw', f`n    assert round(im.info['dpi'][0]) == 1200, f"
     & $Py -c $tifCheck $demo
     if ($LASTEXITCODE -ne 0) { Fail "TIFF files are not RGB, LZW, 1200 dpi" }
-    Ok "init_figure and all eleven demo figures in both colour modes"
+    $parts = P @($Tmp, "demo_parts")
+    $plog = & $Py (P @($skill, "examples", "demo_parts.py")) $parts 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { Write-Host $plog; Fail "demo_parts" }
+    if ($plog -match "FAIL") { Write-Host $plog; Fail "a demo part failed its checks" }
+    foreach ($mode in @("normal", "soft")) {
+        if ((Get-ChildItem -LiteralPath (P @($parts, $mode)) -Recurse -Filter "*.pdf").Count -ne 12) { Fail "expected 12 $mode parts" }
+    }
+    Ok "init_figure, eleven demo figures and twelve demo parts in both colour modes"
 
     # 7. an outdated project style copy is replaced and archived
     $styleFile = P @($P1, "figures", "_style", "pubstyle.py")

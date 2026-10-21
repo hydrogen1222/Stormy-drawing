@@ -12,7 +12,8 @@ Example:
 
 The project root must already exist (a mistyped path is an error, not a new
 folder tree). On first use it also creates figures/_style/ with this project's copy of
-pubstyle.py and an empty color registry colors.json. Both commands also check
+pubstyle.py and pubparts.py (vector parts for image-editor layouts) and an empty
+color registry colors.json. Both commands also check
 that copy: if it is older than this skill's pubstyle.py (or has no version at
 all), the old copy moves to figures/_style/archive/ and the new one replaces
 it; figures drawn with the old copy must then be redrawn. colors.json is left
@@ -73,6 +74,32 @@ def sync_palette(style: Path, src: Path) -> None:
 
 
 def sync_style(style: Path) -> None:
+    """Create or update figures/_style/ (pubstyle.py and pubparts.py) from this skill."""
+    sync_pubstyle(style)
+    sync_aux(style, "pubparts.py")
+
+
+def sync_aux(style: Path, name: str) -> None:
+    """Keep a helper module of the style folder identical to this skill's copy; a
+    different older copy goes to archive/ first."""
+    src, dst = SKILL / "scripts" / name, style / name
+    if not dst.exists():
+        shutil.copy2(src, dst)
+        print(f"created {dst}")
+    elif dst.read_bytes() != src.read_bytes():
+        archive = style / "archive"
+        archive.mkdir(exist_ok=True)
+        stem = f"{Path(name).stem}_{datetime.date.today()}"
+        keep, n = archive / f"{stem}.py", 2
+        while keep.exists():
+            keep = archive / f"{stem}_{n}.py"
+            n += 1
+        shutil.move(str(dst), str(keep))
+        shutil.copy2(src, dst)
+        print(f"UPDATED {dst} (old copy: {keep})")
+
+
+def sync_pubstyle(style: Path) -> None:
     """Create or update figures/_style/pubstyle.py from this skill."""
     src = SKILL / "scripts" / "pubstyle.py"
     dst = style / "pubstyle.py"

@@ -75,7 +75,13 @@ for f in glob.glob(sys.argv[1] + '/*/*/*.tif'):
     assert im.mode == 'RGB' and im.info.get('compression') == 'tiff_lzw', f
     assert round(im.info['dpi'][0]) == 1200, f
 " "$TMP/demo" || fail "TIFF files are not RGB, LZW, 1200 dpi"
-ok "init_figure and all eleven demo figures in both colour modes"
+python3 "$P/.agents/skills/plotting/examples/demo_parts.py" "$TMP/demo_parts" > "$TMP/demo_parts.log" 2>&1 \
+  || { cat "$TMP/demo_parts.log"; fail "demo_parts"; }
+grep -q "FAIL" "$TMP/demo_parts.log" && { cat "$TMP/demo_parts.log"; fail "a demo part failed its checks"; }
+for mode in normal soft; do
+  [ "$(find "$TMP/demo_parts/$mode" -name '*.pdf' | wc -l)" -eq 12 ] || fail "expected 12 $mode parts"
+done
+ok "init_figure, eleven demo figures and twelve demo parts in both colour modes"
 
 # 8. an outdated project style copy is replaced and archived
 printf '# old copy without STYLE_VERSION\n' > "$P/figures/_style/pubstyle.py"
