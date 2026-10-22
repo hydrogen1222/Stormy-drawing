@@ -141,7 +141,7 @@ def draw():
 
 | 部件 | 函数 | 要点 |
 |---|---|---|
-| 色标条 | `pp.colorbar(vmin, vmax, title, cmap="turbo", orientation, bands, reverse)` | 数值范围必须和 VMD 的 Color Scale Data Range 一致（第一个值对应最左端颜色，最后一个值对应最右端，中间线性）；`bands=n` 对应 VMD 的 posterize，`reverse=True` 对应反转。**不随柔和模式变色**，必须和位图保持一致。拼图前取 VMD 图里几个像素和色标条对一下 |
+| 色标条 | `pp.colorbar(vmin, vmax, title, orientation, length_cm, thickness_cm, ticks, decimals, bands, reverse)` | 数值范围必须和 VMD 的 Color Scale Data Range 一致（第一个值对应最左端颜色，最后一个值对应最右端，中间线性）；`bands=n` 对应 VMD 的 posterize，`reverse=True` 对应反转。**不随柔和模式变色**，必须和位图保持一致。拼图前取 VMD 图里几个像素和色标条对一下 |
 | 等值面图例 | `pp.isosurface_legend([0.002, -0.002], unit=..., title="Isovalue")` | 颜色默认正红负蓝（和 `ps.DIVERGING` 两端一致）；VMD 里用了别的颜色就把 `(值, 十六进制色)` 对传进去 |
 | 元素图例 | `pp.element_legend(["Li", "P", "S", "Cl"])` | 颜色取自登记文件（和曲线图一致，随色调模式变）；要和 VMD 原子颜色一致时用 `colors={"Li": "#..."}`，给定的色号原样使用 |
 | 坐标轴三角 | `pp.axes_triad(rotation, labels=("a", "b", "c"), vectors=晶格矢量)` | `rotation` 可直接给 VMD 的 `molinfo top get rotate_matrix`（4×4）；非正交晶胞传 `vectors`；朝向观察者的轴按投影画得很短 |
@@ -150,6 +150,25 @@ def draw():
 | 能级图 | `pp.level_diagram(columns, links=...)` | 普通带框图，按常规检查；HOMO/LUMO、带边、缺陷态 |
 | 放大小图框 | `pp.add_inset(ax, (x0, x1, y0, y1), (x, y, w, h))` | 加在任意普通图里，自动画虚线框和连线，返回小图的坐标轴，把同样的数据画进去 |
 | 自由排版 | `pp.new_part(w_cm, h_cm)` 加 `pp.arrow / dashed_box / dashed_circle / dimension / label / line` | 箭头、虚线框、距离线（如 `2.45 Å`）、"Move up 0.6 Å"这类标注；坐标单位是 cm |
+
+**画 VMD 静电势/轨道色标条的流程：**
+1. 先向用户要三样：①Color Scale Data Range 的 min 和 max（VMD Tk Console 里 `mol scaleminmax top <repid>` 会返回，点过 Autoscale 的话就是数据的最小最大值）；②单位（a.u. 还是 kcal/mol 等）；③竖放还是横放。没有这两个数就不要猜，色标条数字错了从图上看不出来。
+2. 默认是长而细的（长 6 cm、厚 0.22 cm），约 5 个整齐刻度，画布按内容裁掉空白。字号固定（刻度 6 pt、标题 7 pt），和其他图一致，不改。
+3. 用户用一句话微调时，对应改这些参数：
+
+| 用户说 | 改什么 |
+|---|---|
+| 更长/更短/更细/更粗 | `length_cm` / `thickness_cm` |
+| 刻度和 VMD 自带的一样（11 个等分） | `ticks=11` |
+| 刻度少一点/多一点 | `ticks=n`，或直接给列表 `ticks=[-40, -20, 0, 20, 40]` |
+| 数字取整/多保留一位 | `decimals=0` / `decimals=2` |
+| 横放 | `orientation="horizontal"` |
+| 颜色分成几档（VMD 的 posterize） | `bands=n` |
+| 颜色反过来 | `reverse=True` |
+| 两端有超出范围的值 | `extend="both"`（或 `"min"` / `"max"`） |
+| 改标题或单位 | 改 `title` |
+
+刻度数字互相挤在一起时函数会报错并说明解决办法（少几个刻度、少几位小数、加长色标条），不会生成难看的图。字体的大小不能改：这是仓库的规则，需要缩放就在 PS 里整体缩放。
 
 - 部件的检查：字体、字号、粗体、线宽（含方框、箭头的轮廓）和画布边缘照常检查；自由排版里文字压在线上是故意的，所以不查重叠。
 - 所有线 1.0 磅、文字 6 pt（色标条标题 7 pt）、深灰 `0.15`，和其他图一致。

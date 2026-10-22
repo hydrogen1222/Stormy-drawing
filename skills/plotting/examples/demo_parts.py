@@ -67,7 +67,7 @@ def levels():
 
 PARTS = [
     ("01_colorbar_vertical_esp", lambda: pp.colorbar(-0.05, 0.05, "ESP (a.u.)")),
-    ("02_colorbar_horizontal_esp", lambda: pp.colorbar(-0.05, 0.05, "ESP (a.u.)", orientation="horizontal")),
+    ("02_colorbar_horizontal_esp", lambda: pp.colorbar(-41, 38, "ESP (kcal/mol)", orientation="horizontal", ticks=11, decimals=0, length_cm=8)),
     ("03_colorbar_posterized_reversed", lambda: pp.colorbar(0, 1, "ELF", bands=8, reverse=True)),
     ("04_isosurface_legend_horizontal",
      lambda: pp.isosurface_legend([0.002, -0.002], unit=r"e $\rm\AA^{\rm -3}$", title="Isovalue")),
