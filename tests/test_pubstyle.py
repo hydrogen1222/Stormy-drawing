@@ -786,6 +786,31 @@ def colorbar_is_turbo_like_vmd_and_ignores_the_soft_mode():
 
 
 @test
+def colorbar_is_long_thin_cut_to_content_and_adjustable():
+    ps.plt.close("all")
+    v = pp.colorbar(-41, 38, "ESP (kcal/mol)")
+    h = pp.colorbar(-41, 38, "ESP (kcal/mol)", orientation="horizontal")
+    wv, hv = (x * 2.54 for x in v.get_size_inches())
+    wh, hh = (x * 2.54 for x in h.get_size_inches())
+    assert hv > 4 * wv and wh > 4 * hh, (wv, hv, wh, hh)             # long and thin, no empty canvas
+    assert hh < 1.5 and wv < 2.0, (hh, wv)
+    cax = v.axes[0]
+    assert abs(cax.get_position().height * v.get_size_inches()[1] * 2.54 - 6.0) < 0.01   # the bar is length_cm long
+    assert abs(cax.get_position().width * v.get_size_inches()[0] * 2.54 - 0.22) < 0.01
+    # explicit control: n equal steps like VMD's own bar, integers, thickness
+    f = pp.colorbar(-41, 38, "x", orientation="horizontal", ticks=11, decimals=0, length_cm=8, thickness_cm=0.15)
+    labs = [t.get_text() for t in f.axes[0].get_xticklabels()]
+    assert len(labs) == 11 and labs[0] == "\u221241" and labs[-1] == "38", labs
+    f = pp.colorbar(-41, 38, "x", ticks=[-41, 0, 38])
+    assert [t.get_text() for t in f.axes[0].get_yticklabels()] == ["\u221241", "0", "38"] or len(f.axes[0].get_yticks()) == 3
+    # labels that would touch are an error with the way out named, not an ugly figure
+    raises(ValueError, pp.colorbar, -41, 38, "x", orientation="horizontal", ticks=11, length_cm=3, match="touch")
+    raises(ValueError, pp.colorbar, 0, 1, "x", ticks=[0, 2], match="between")
+    raises(ValueError, pp.colorbar, 0, 1, "x", thickness_cm=5)
+    raises(ValueError, pp.colorbar, 0, 1, "x", decimals=9)
+
+
+@test
 def legends_follow_the_colour_mode_but_exact_colors_do_not():
     reg = fresh_registry()
     try:

@@ -142,14 +142,26 @@ def _nice_ticks(vmin, vmax, n=5):
 # ---------------------------------------------------------------- 1. colour bar
 
 def colorbar(vmin: float, vmax: float, title: str, cmap="turbo", orientation: str = "vertical",
-             length_cm: float = 4.0, thickness_cm: float = 0.35, ticks=None,
-             bands: int | None = None, reverse: bool = False, extend: str = "neither"):
+             length_cm: float = 6.0, thickness_cm: float = 0.22, ticks=None,
+             decimals: int | None = None, bands: int | None = None, reverse: bool = False,
+             extend: str = "neither"):
     """Colour bar for a colour scale. The default "turbo" is the scale VMD 1.9.4 calls
     Turbo (Google's table, 256 entries). Give the same vmin / vmax as the Color Scale
     Data Range in VMD: the first value is the first colour, the last value the last
-    colour, in between linear. bands=n draws n flat colour bands (VMD's posterize),
-    reverse=True swaps the ends (VMD's reverse). It never follows the soft colour mode:
-    a colour bar must stay identical to the picture it belongs to."""
+    colour, in between linear. It never follows the soft colour mode: a colour bar must
+    stay identical to the picture it belongs to.
+
+    Things to adjust (cm; all the text stays at the style's fixed sizes):
+      length_cm, thickness_cm   size of the bar itself (long and thin: 6 x 0.22 by default)
+      ticks      None = about 5 round values; an int n = n equal steps from vmin to vmax
+                 (VMD's own bar uses 11); or an explicit list of values
+      decimals   digits after the decimal point on the tick labels (0 = integers);
+                 None = as short as the values allow
+      bands      n flat colour bands (VMD's posterize); reverse=True swaps the ends
+      extend     "min" / "max" / "both" adds an arrow-like end for out-of-range values
+    The canvas is cut to the content (0.12 cm margin), so the part's size is the size of
+    what is drawn. Tick labels that would touch each other are an error, not a surprise:
+    use fewer ticks, fewer decimals or a longer bar."""
     if not (math.isfinite(vmin) and math.isfinite(vmax) and vmin < vmax):
         raise ValueError(f"vmin {vmin} must be smaller than vmax {vmax}")
     if orientation not in ("vertical", "horizontal"):
@@ -158,6 +170,10 @@ def colorbar(vmin: float, vmax: float, title: str, cmap="turbo", orientation: st
         raise ValueError("extend must be neither, min, max or both")
     if not (1.0 <= length_cm <= 20.0):
         raise ValueError("length_cm must be between 1 and 20 cm")
+    if not (0.05 <= thickness_cm <= 2.0):
+        raise ValueError("thickness_cm must be between 0.05 and 2 cm")
+    if decimals is not None and not (0 <= int(decimals) <= 6):
+        raise ValueError("decimals must be between 0 and 6")
     base = plt.get_cmap(cmap) if not isinstance(cmap, Colormap) else cmap
     if bands is not None:
         if bands < 2 or bands > 64:
@@ -165,25 +181,61 @@ def colorbar(vmin: float, vmax: float, title: str, cmap="turbo", orientation: st
         base = ListedColormap(base(np.linspace(0, 1, bands)))
     if reverse:
         base = base.reversed()
-    t = thickness_cm
-    if orientation == "vertical":
-        w, h = 0.25 + t + 2.05, length_cm + 0.6
-        rect = (0.25, 0.3, t, length_cm)
+    if ticks is None:
+        tick_values = _nice_ticks(vmin, vmax)
+    elif isinstance(ticks, (int, np.integer)) and not isinstance(ticks, bool):
+        if not (2 <= ticks <= 30):
+            raise ValueError("ticks as a number must be between 2 and 30")
+        tick_values = list(np.linspace(vmin, vmax, int(ticks)))
     else:
-        w, h = length_cm + 1.2, t + 1.5
-        rect = (0.6, h - 0.2 - t, length_cm, t)
-    fig, _ = new_part(w, h)
-    fig.delaxes(fig.axes[0])
-    cax = fig.add_axes((rect[0] / w, rect[1] / h, rect[2] / w, rect[3] / h))
-    cax._pubstyle_colorbar = True
-    cb = fig.colorbar(mpl.cm.ScalarMappable(Normalize(vmin, vmax), base), cax=cax,
-                      orientation=orientation, extend=extend,
-                      ticks=ticks if ticks is not None else _nice_ticks(vmin, vmax))
-    cb.set_label(title, fontsize=ps.LABEL_PT)
-    cb.outline.set_linewidth(ps.FRAME_LW)
-    cb.ax.tick_params(direction="out", width=ps.FRAME_LW, length=ps.MAJOR_LEN)
-    cb.ax.minorticks_off()
-    fig._pubstyle_part_name = "colorbar"
+        tick_values = [float(t) for t in ticks]
+        if any(not (vmin - 1e-9 <= t <= vmax + 1e-9) for t in tick_values):
+            raise ValueError("every tick must lie between vmin and vmax")
+    formatter = None
+    if decimals is not None:
+        formatter = mpl.ticker.FuncFormatter(
+            lambda v, _pos, d=int(decimals): f"{v:.{d}f}".replace("-", "\u2212"))
+
+    def build(canvas_w, canvas_h, x0, y0):
+        """x0, y0: lower-left corner of the bar on the canvas (cm)."""
+        fig, _ = new_part(canvas_w, canvas_h)
+        fig.delaxes(fig.axes[0])
+        bw, bh = (thickness_cm, length_cm) if orientation == "vertical" else (length_cm, thickness_cm)
+        cax = fig.add_axes((x0 / canvas_w, y0 / canvas_h, bw / canvas_w, bh / canvas_h))
+        cax._pubstyle_colorbar = True
+        cb = fig.colorbar(mpl.cm.ScalarMappable(Normalize(vmin, vmax), base), cax=cax,
+                          orientation=orientation, extend=extend, ticks=tick_values,
+                          format=formatter)
+        cb.set_label(title, fontsize=ps.LABEL_PT)
+        cb.outline.set_linewidth(ps.FRAME_LW)
+        cb.ax.tick_params(direction="out", width=ps.FRAME_LW, length=ps.MAJOR_LEN)
+        cb.ax.minorticks_off()
+        fig._pubstyle_part_name = "colorbar"
+        return fig, cax
+
+    # pass 1 on a roomy canvas to measure the real extent, pass 2 cuts the canvas to it
+    big = 30.0
+    fig, cax = build(big, big, 10.0, 10.0)
+    fig.canvas.draw()
+    r = fig.canvas.get_renderer()
+    labels = [t for t in (cax.get_yticklabels() if orientation == "vertical" else cax.get_xticklabels())
+              if t.get_text() and t.get_visible()]
+    boxes = sorted((t.get_window_extent(r) for t in labels),
+                   key=lambda b: b.y0 if orientation == "vertical" else b.x0)
+    gap_px = 0.08 / 2.54 * fig.dpi                           # 0.08 cm of air between neighbours
+    for b0, b1 in zip(boxes, boxes[1:]):
+        touching = (b0.y1 + gap_px > b1.y0) if orientation == "vertical" else (b0.x1 + gap_px > b1.x0)
+        if touching:
+            plt.close(fig)
+            raise ValueError("colorbar tick labels touch each other; use fewer ticks "
+                             "(ticks=5), fewer decimals (decimals=0) or a longer bar (length_cm)")
+    tb = fig.get_tightbbox(r)                                # inches
+    x_lo, x_hi, y_lo, y_hi = (v * 2.54 for v in (tb.x0, tb.x1, tb.y0, tb.y1))
+    plt.close(fig)
+    margin = 0.12
+    w = x_hi - x_lo + 2 * margin
+    h = y_hi - y_lo + 2 * margin
+    fig, _ = build(w, h, 10.0 - x_lo + margin, 10.0 - y_lo + margin)
     return fig
 
 
