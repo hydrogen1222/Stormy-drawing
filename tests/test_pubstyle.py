@@ -417,7 +417,7 @@ def update_style_replaces_an_old_copy():
     style.write_text('STYLE_VERSION = "0.7.0"\n', encoding="utf-8")
     r = run_py(INIT, "--update-style", proj)
     assert "UPDATED" in r.stdout, r.stdout
-    assert re.search(r'^STYLE_VERSION = "0\.9\.0"', style.read_text(encoding="utf-8"), re.M)
+    assert re.search(r'^STYLE_VERSION = "0\.9\.1"', style.read_text(encoding="utf-8"), re.M)
     assert list((proj / "figures" / "_style" / "archive").glob("pubstyle_0.7.0_*.py"))
 
 
@@ -886,6 +886,61 @@ def the_skill_scripts_folder_stays_tidy():
     registry was created in the wrong place."""
     names = sorted(p.name for p in (SKILL / "scripts").iterdir() if p.name != "__pycache__")
     assert names == ["init_figure.py", "pubparts.py", "pubstyle.py"], names
+
+
+# ---------------------------------------------------------------- Multiwfn plane maps
+
+def _fake_plane(tmp, with_xyz, blank_rows):
+    """A tilted rectangular slice (7 x 5 points) written the way Multiwfn does (Bohr)."""
+    q, _ = np.linalg.qr(np.random.default_rng(3).normal(size=(3, 3)))
+    e1, e2, origin = q[:, 0], q[:, 1], np.array([3.0, -2.0, 25.0])      # Å
+    u, v = np.arange(7) * 0.30, np.arange(5) * 0.25
+    Z = np.add.outer(v, u) / 3.0                                          # value depends on u and v
+    lines = []
+    for j in range(5):
+        for i in range(7):
+            p = (origin + u[i] * e1 + v[j] * e2) / ps.BOHR_TO_ANG
+            x = f"{p[0]:.6f} {p[1]:.6f} {p[2]:.6f}" if with_xyz else f"{u[i] / ps.BOHR_TO_ANG:.6f} {v[j] / ps.BOHR_TO_ANG:.6f}"
+            lines.append(f"{x} {Z[j, i]:.8E}")
+        if blank_rows:
+            lines.append("")
+    path = tmp / ("plane3d.txt" if with_xyz else "plane2d.txt")
+    path.write_text("\n".join(lines) + "\n")
+    return path, u, v, Z, origin, e1, e2
+
+
+@test
+def read_plane_with_3d_coordinates_recovers_grid_and_projects_atoms():
+    path, u, v, Z, origin, e1, e2 = _fake_plane(TMP, with_xyz=True, blank_rows=True)
+    m = ps.read_plane(path)
+    assert np.allclose(m.u, u, atol=1e-5) and np.allclose(m.v, v, atol=1e-5)
+    assert np.allclose(m.Z, Z) and m.Z.shape == (5, 7)
+    assert np.allclose(m.extent, (0, u[-1], 0, v[-1]), atol=1e-5)
+    # an atom 0.4 Å above grid point (u=0.6, v=0.5) lands on that point, h = 0.4
+    atom = origin + 0.6 * e1 + 0.5 * e2 + 0.4 * np.cross(e1, e2)
+    pu, pv, h = m.project(atom)
+    assert np.allclose([pu[0], pv[0], h[0]], [0.6, 0.5, 0.4], atol=1e-4)
+
+
+@test
+def read_plane_with_2d_coordinates_and_its_errors():
+    path, u, v, Z, *_ = _fake_plane(TMP, with_xyz=False, blank_rows=False)
+    m = ps.read_plane(path)
+    assert np.allclose(m.u, u, atol=1e-5) and np.allclose(m.v, v, atol=1e-5) and np.allclose(m.Z, Z)
+    try:
+        m.project([[0.0, 0.0, 0.0]])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("project() must refuse a file without 3D coordinates")
+    bad = TMP / "bad_plane.txt"
+    bad.write_text("\n".join(path.read_text().splitlines()[:-3]) + "\n")      # incomplete grid
+    try:
+        ps.read_plane(bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("an incomplete grid must be rejected")
 
 
 # ---------------------------------------------------------------- no personal leftovers

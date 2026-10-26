@@ -113,6 +113,11 @@
 - 用 `ps.new_figure(colorbar=True)` 建图，`ps.add_colorbar(fig, ax, im, label)` 加色标条（右侧，标题写物理量和单位）。对比的几张图色标范围完全一致。
 - 切片平面上的原子用小圆点标出（颜色取自登记文件，黑色细描边）。
 - README 写清：切片平面由哪几个原子或哪个晶面确定、插值方式、色标范围及是否截断。
+- **Multiwfn 平面图（ELF、电子密度的切片）**：在 Multiwfn 主功能 4 里选函数、点数和由三个原子定义的平面，关掉图窗后在结果菜单里选导出 `plane.txt` 的那一项，把文件复制进 `data/`。用 `m = ps.read_plane("data/plane.txt")` 读入：坐标默认按 Bohr 换成 Å（文件已经是 Å 时传 `unit="angstrom"`），数值原样返回。
+  - ELF 的范围固定为 0 到 1：`im = ax.imshow(m.Z, origin="lower", extent=m.extent, cmap=ps.sequential_cmap(), vmin=0, vmax=1, interpolation="bilinear")`，色标标题写 `"ELF"`，同一组图（几处接触）色标必须同为 0–1。ELF 是解析光滑的场，可以用 bilinear；上面"不许"针对的是没平滑的原始计数。
+  - 文件带三维坐标（每行 `x y z 数值`）时，`u, v, h = m.project(xyz)` 把同一结构的原子坐标（Å）投到切片上，`h` 是离平面的距离。只标 `h` 小于约 0.5 Å 的原子（颜色取自登记文件）；离得更远的原子，价层被平面截到也会出现色块，但那不是平面上的原子，不画点。
+  - 文件只有两列坐标（`x y 数值`）时 `m.project` 会报错，原子位置从 Multiwfn 带原子标注的图上读，写进 README。
+  - 用赝势（如 CP2K 的 GTH）时，Li 的 1s² 作为价电子被显式保留，会出现 ELF≈1 的圆盘；O、S、Cl、P 的内层被赝势替掉，原子核处是低值小点，周围一圈是价层。README 注明，免得把 Li 圆盘当成键。
 - 三维等值面属于结构图，见 `structures.md`。
 
 ## 沿某个方向的分布（界面剖面）
