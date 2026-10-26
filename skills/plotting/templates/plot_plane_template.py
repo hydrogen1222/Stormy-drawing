@@ -29,6 +29,8 @@ ORIGIN_ATOM = None     # e.g. "O337": put (0, 0) on that atom so the axes read a
                        # from it; None keeps Multiwfn's grid corner as (0, 0)
 VMIN, VMAX = 0.0, 1.0  # ELF is always 0-1; change only for another quantity (and the cmap)
 CMAP = "turbo"
+WINDOW = None          # (width, height) in Å, e.g. (6.5, 6.5): show exactly this window, centred on the
+                       # exported plane, so every figure of a paper has the same Å per cm. None = whole plane
 IMAGE_PX = 1500        # pixels along the longer side of the picture kept in PDF/SVG/TIFF (see below)
 MODES = ("normal", "soft")   # once the user has chosen, keep only that one (see README.md)
 
@@ -53,11 +55,25 @@ if ORIGIN_ATOM:
         sys.exit(f"ORIGIN_ATOM {ORIGIN_ATOM!r} is not in data/{ATOMS_FILE} (write it as element+index, e.g. O337).")
     du, dv = u[ref[0]], v[ref[0]]
 u, v = u - du, v - dv
-extent = (m.u[0] - du, m.u[-1] - du, m.v[0] - dv, m.v[-1] - dv)
-inside = (u >= extent[0]) & (u <= extent[1]) & (v >= extent[2]) & (v <= extent[3]) & (h <= H_MAX)
+U, V = m.u - du, m.v - dv
+Zc, extent = m.Z, (U[0], U[-1], V[0], V[-1])
+lim = extent
+if WINDOW:
+    w, hh = WINDOW
+    if w > U[-1] - U[0] + 1e-6 or hh > V[-1] - V[0] + 1e-6:
+        sys.exit(f"WINDOW {w} x {hh} Å is larger than the exported plane ({U[-1] - U[0]:.2f} x {V[-1] - V[0]:.2f} Å): "
+                 "export a larger plane in Multiwfn, or make WINDOW smaller.")
+    cx, cy = (U[0] + U[-1]) / 2, (V[0] + V[-1]) / 2
+    lim = (cx - w / 2, cx + w / 2, cy - hh / 2, cy + hh / 2)
+    iu = np.flatnonzero((U >= lim[0]) & (U <= lim[1]))
+    iv = np.flatnonzero((V >= lim[2]) & (V <= lim[3]))
+    iu0, iu1 = max(iu[0] - 1, 0), min(iu[-1] + 1, len(U) - 1)     # one pixel of margin; the axes limits cut it
+    iv0, iv1 = max(iv[0] - 1, 0), min(iv[-1] + 1, len(V) - 1)
+    Zc, extent = m.Z[iv0:iv1 + 1, iu0:iu1 + 1], (U[iu0], U[iu1], V[iv0], V[iv1])
+inside = (u >= lim[0]) & (u <= lim[1]) & (v >= lim[2]) & (v <= lim[3]) & (h <= H_MAX)
 shown = [(a[1], a[0], uu, vv) for a, uu, vv, ok in zip(atoms, u, v, inside) if ok]
 print(f"{len(shown)} atoms within {H_MAX} Å of the plane:", ", ".join(f"{el}{n}" for el, n, _, _ in shown))
-print(f"grid {m.Z.shape[1]} x {m.Z.shape[0]}, {extent[1] - extent[0]:.2f} x {extent[3] - extent[2]:.2f} Å, "
+print(f"grid {m.Z.shape[1]} x {m.Z.shape[0]}, shown {lim[1] - lim[0]:.2f} x {lim[3] - lim[2]:.2f} Å, "
       f"value range {m.Z.min():.3f} to {m.Z.max():.3f}")
 
 
@@ -76,7 +92,7 @@ def resample(Z, n):
     return np.array([np.interp(xv, np.arange(nv), col) for col in A.T]).T
 
 
-Zdraw = resample(m.Z, IMAGE_PX)
+Zdraw = resample(Zc, IMAGE_PX)
 
 
 def draw():
@@ -88,6 +104,8 @@ def draw():
     for el, n, uu, vv in shown:
         ax.plot(uu, vv, "o", color=reg.color(el), mec="white", mew=0.8, ms=5)
         ps.label_point(ax, uu, vv, f"{el}{n}")
+    ax.set_xlim(lim[0], lim[1])
+    ax.set_ylim(lim[2], lim[3])
     ax.set_aspect("equal")
     ax.set_xlabel(r"$u$ (Å)")
     ax.set_ylabel(r"$v$ (Å)")

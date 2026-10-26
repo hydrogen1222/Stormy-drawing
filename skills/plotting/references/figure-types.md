@@ -116,6 +116,7 @@
 - README 写清：切片平面由哪几个原子或哪个晶面确定、插值方式、色标范围及是否截断。
 - **Multiwfn 平面图（ELF、电子密度的切片）**：在 Multiwfn 主功能 4 里选函数、点数和由三个原子定义的平面，关掉图窗后在结果菜单里选 `Export the current plane data to plane.txt`（编号以屏幕为准），把文件复制进 `data/`。导出时屏幕会写 `length unit is in Angstrom`，文件有 6 列：前三列笛卡尔坐标 X Y Z，第 4、5 列是图上的 x、y，最后一列是数值。用 `m = ps.read_plane("data/plane.txt")` 读入：默认坐标是 Å（屏幕写的是 Bohr 就传 `unit="bohr"`），图的横纵轴 `m.u`、`m.v` 与 Multiwfn 的图一致，数值原样返回。
   - 起图用 `init_figure.py <项目> <名字> --plane`：生成的 `plot.py` 读 `data/plane.txt` 和 `data/atoms.txt`（每行 `序号 元素 x y z`，Å，序号与 molden 一致），离平面不超过 `H_MAX`（默认 0.4 Å）的原子自动画点加标签，换一个平面只需换这两个文件。
+  - 同一篇文章里几张平面图要放进同一版面时，`WINDOW = (6.5, 6.5)`（Å，各图取同一个值）：每张图都只显示这么大的窗口，所以画布一样大、每厘米对应的 Å 数也一样，图上的原子和字号在 Inkscape 里不会一张大一张小。导出的平面必须不小于 `WINDOW`，否则脚本会报错，不会留白边；不要用把坐标轴硬撑到 0–8 的办法，那会在数据外留白。
   - 清晰度：PDF/SVG 里 `interpolation="bilinear"` 的图只保留约 100 ppi，放大会糊，和 plane.txt 的格点密度无关（200×200 和 4000×4000 一样）。模板先把格点重采样到 `IMAGE_PX`（默认 1500）像素再用 `interpolation="none"`，矢量文件里就是 1500 像素。ELF 很光滑，格点 0.03 Å 左右（200×200）已经够，不必导出上 GB 的文件。
   - 坐标轴：`u`、`v` 是平面内以 Å 计的位置，原点默认在 Multiwfn 的格点角，数字本身没有物理含义。把 `ORIGIN_ATOM` 设成关键原子（如 `"O337"`），轴上的数就变成离它多远，可以直接读出 Li–O 的距离；几张图（几处接触）用同一种原点约定。
   - ELF 的范围固定为 0 到 1，色标用 Turbo：`im = ax.imshow(m.Z, origin="lower", extent=m.extent, cmap="turbo", vmin=0, vmax=1, interpolation="bilinear")`，色标标题写 `"ELF"`，同一组图（几处接触）色标必须同为 0–1。ELF 是解析光滑的场，可以用 bilinear；上面"不许"针对的是没平滑的原始计数。

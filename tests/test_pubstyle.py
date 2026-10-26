@@ -989,6 +989,13 @@ def plane_template_marks_atoms_on_the_plane_and_can_move_the_origin():
     plot.write_text(s.replace("ORIGIN_ATOM = None ", 'ORIGIN_ATOM = "Li1" ', 1), encoding="utf-8")
     r = run_py(plot, cwd=folder)
     assert r.returncode == 0 and "3 atoms within 0.4" in r.stdout, r.stdout + r.stderr
+    # a fixed window: same Å size whatever the exported plane (1.8 x 1.0 Å here), refused when larger
+    plot.write_text(s.replace("WINDOW = None ", "WINDOW = (1.2, 0.8) ", 1), encoding="utf-8")
+    r = run_py(plot, cwd=folder)
+    assert r.returncode == 0 and "shown 1.20 x 0.80" in r.stdout, r.stdout + r.stderr
+    plot.write_text(s.replace("WINDOW = None ", "WINDOW = (3.0, 0.8) ", 1), encoding="utf-8")
+    r = run_py(plot, cwd=folder)
+    assert r.returncode != 0 and "larger than the exported plane" in (r.stdout + r.stderr), r.stdout + r.stderr
     plot.write_text(s.replace("ORIGIN_ATOM = None ", 'ORIGIN_ATOM = "Zz9" ', 1), encoding="utf-8")
     r = run_py(plot, cwd=folder)
     assert r.returncode != 0 and "not in data/atoms.txt" in (r.stdout + r.stderr), r.stdout + r.stderr
