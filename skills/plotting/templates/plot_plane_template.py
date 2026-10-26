@@ -29,6 +29,7 @@ ORIGIN_ATOM = None     # e.g. "O337": put (0, 0) on that atom so the axes read a
                        # from it; None keeps Multiwfn's grid corner as (0, 0)
 VMIN, VMAX = 0.0, 1.0  # ELF is always 0-1; change only for another quantity (and the cmap)
 CMAP = "turbo"
+IMAGE_PX = 1500        # pixels along the longer side of the picture kept in PDF/SVG/TIFF (see below)
 MODES = ("normal", "soft")   # once the user has chosen, keep only that one (see README.md)
 
 for name in (PLANE_FILE, ATOMS_FILE):
@@ -60,12 +61,30 @@ print(f"grid {m.Z.shape[1]} x {m.Z.shape[0]}, {extent[1] - extent[0]:.2f} x {ext
       f"value range {m.Z.min():.3f} to {m.Z.max():.3f}")
 
 
+def resample(Z, n):
+    """Z on an n-pixel grid along its longer side (linear interpolation, aspect kept).
+
+    Why: with interpolation="bilinear" matplotlib resamples the picture to 100 pixels per
+    inch before writing PDF/SVG, so a 200 x 200 or a 4000 x 4000 grid both end up as the
+    same ~170-pixel blur when zoomed. Resampling here and drawing with interpolation="none"
+    keeps all n pixels in the vector files, whatever the density of plane.txt."""
+    nv, nu = Z.shape
+    k = n / max(nu, nv)
+    xu = np.linspace(0, nu - 1, max(2, round(nu * k)))
+    xv = np.linspace(0, nv - 1, max(2, round(nv * k)))
+    A = np.array([np.interp(xu, np.arange(nu), row) for row in Z])
+    return np.array([np.interp(xv, np.arange(nv), col) for col in A.T]).T
+
+
+Zdraw = resample(m.Z, IMAGE_PX)
+
+
 def draw():
     """Build the figure; called once per colour mode."""
     reg = ps.ColorRegistry()
     fig, ax = ps.new_figure(colorbar=True)
-    im = ax.imshow(m.Z, origin="lower", extent=extent, cmap=CMAP, vmin=VMIN, vmax=VMAX,
-                   interpolation="bilinear")
+    im = ax.imshow(Zdraw, origin="lower", extent=extent, cmap=CMAP, vmin=VMIN, vmax=VMAX,
+                   interpolation="none")
     for el, n, uu, vv in shown:
         ax.plot(uu, vv, "o", color=reg.color(el), mec="white", mew=0.8, ms=5)
         ps.label_point(ax, uu, vv, f"{el}{n}")
