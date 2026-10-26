@@ -980,6 +980,10 @@ def plane_template_marks_atoms_on_the_plane_and_can_move_the_origin():
     for mode in ("normal", "soft"):
         report = (folder / "output" / mode / f"{folder.name}_{mode}_checks.txt").read_text(encoding="utf-8")
         assert "FAIL" not in report, report
+    # the vector files keep a dense picture (a 7 x 5 grid is resampled to IMAGE_PX), not matplotlib's ~100 ppi one
+    pdf = (folder / "output" / "normal" / f"{folder.name}_normal.pdf").read_bytes()
+    widths = [int(w) for w in re.findall(rb"/Width (\d+)", pdf)]
+    assert max(widths) >= 1000, widths
     # origin on an atom: still runs, and a name that is not in the file is refused clearly
     s = plot.read_text(encoding="utf-8")
     plot.write_text(s.replace("ORIGIN_ATOM = None ", 'ORIGIN_ATOM = "Li1" ', 1), encoding="utf-8")
