@@ -417,7 +417,7 @@ def update_style_replaces_an_old_copy():
     style.write_text('STYLE_VERSION = "0.7.0"\n', encoding="utf-8")
     r = run_py(INIT, "--update-style", proj)
     assert "UPDATED" in r.stdout, r.stdout
-    assert re.search(r'^STYLE_VERSION = "0\.9\.1"', style.read_text(encoding="utf-8"), re.M)
+    assert re.search(r'^STYLE_VERSION = "0\.9\.2"', style.read_text(encoding="utf-8"), re.M)
     assert list((proj / "figures" / "_style" / "archive").glob("pubstyle_0.7.0_*.py"))
 
 
@@ -890,41 +890,49 @@ def the_skill_scripts_folder_stays_tidy():
 
 # ---------------------------------------------------------------- Multiwfn plane maps
 
-def _fake_plane(tmp, with_xyz, blank_rows):
-    """A tilted rectangular slice (7 x 5 points) written the way Multiwfn does (Bohr)."""
+def _fake_plane(tmp, layout, unit="angstrom", y_fast=False, blank_rows=False):
+    """A tilted rectangular slice (7 x 5 points) written like Multiwfn's plane.txt.
+    layout: "6col" X Y Z x y value (Multiwfn), "4col" X Y Z value, "3col" x y value.
+    y_fast: the graph's y runs fastest in the file (x is the outer loop)."""
     q, _ = np.linalg.qr(np.random.default_rng(3).normal(size=(3, 3)))
     e1, e2, origin = q[:, 0], q[:, 1], np.array([3.0, -2.0, 25.0])      # Å
     u, v = np.arange(7) * 0.30, np.arange(5) * 0.25
     Z = np.add.outer(v, u) / 3.0                                          # value depends on u and v
+    f = 1 / ps.BOHR_TO_ANG if unit == "bohr" else 1.0
+    order = [(i, j) for i in range(7) for j in range(5)] if y_fast else [(i, j) for j in range(5) for i in range(7)]
     lines = []
-    for j in range(5):
-        for i in range(7):
-            p = (origin + u[i] * e1 + v[j] * e2) / ps.BOHR_TO_ANG
-            x = f"{p[0]:.6f} {p[1]:.6f} {p[2]:.6f}" if with_xyz else f"{u[i] / ps.BOHR_TO_ANG:.6f} {v[j] / ps.BOHR_TO_ANG:.6f}"
-            lines.append(f"{x} {Z[j, i]:.8E}")
-        if blank_rows:
+    for n, (i, j) in enumerate(order):
+        p = (origin + u[i] * e1 + v[j] * e2) * f
+        xyz, gxy = f"{p[0]:.6f} {p[1]:.6f} {p[2]:.6f}", f"{u[i] * f:.6f} {v[j] * f:.6f}"
+        lines.append({"6col": f"{xyz} {gxy}", "4col": xyz, "3col": gxy}[layout] + f" {Z[j, i]:.8E}")
+        if blank_rows and (n + 1) % (5 if y_fast else 7) == 0:
             lines.append("")
-    path = tmp / ("plane3d.txt" if with_xyz else "plane2d.txt")
+    path = tmp / f"plane_{layout}_{unit}_{int(y_fast)}.txt"
     path.write_text("\n".join(lines) + "\n")
     return path, u, v, Z, origin, e1, e2
 
 
 @test
-def read_plane_with_3d_coordinates_recovers_grid_and_projects_atoms():
-    path, u, v, Z, origin, e1, e2 = _fake_plane(TMP, with_xyz=True, blank_rows=True)
-    m = ps.read_plane(path)
-    assert np.allclose(m.u, u, atol=1e-5) and np.allclose(m.v, v, atol=1e-5)
-    assert np.allclose(m.Z, Z) and m.Z.shape == (5, 7)
-    assert np.allclose(m.extent, (0, u[-1], 0, v[-1]), atol=1e-5)
-    # an atom 0.4 Å above grid point (u=0.6, v=0.5) lands on that point, h = 0.4
-    atom = origin + 0.6 * e1 + 0.5 * e2 + 0.4 * np.cross(e1, e2)
-    pu, pv, h = m.project(atom)
-    assert np.allclose([pu[0], pv[0], h[0]], [0.6, 0.5, 0.4], atol=1e-4)
+def read_plane_reads_multiwfns_six_columns_in_angstrom_either_loop_order():
+    for y_fast in (False, True):
+        path, u, v, Z, origin, e1, e2 = _fake_plane(TMP, "6col", y_fast=y_fast, blank_rows=True)
+        m = ps.read_plane(path)                                     # default unit: Å
+        assert np.allclose(m.u, u, atol=1e-5) and np.allclose(m.v, v, atol=1e-5), y_fast
+        assert np.allclose(m.Z, Z) and m.Z.shape == (5, 7)
+        assert np.allclose(m.extent, (0, u[-1], 0, v[-1]), atol=1e-5)
+        # an atom 0.4 Å above grid point (u=0.6, v=0.5) lands on that point, h = 0.4
+        atom = origin + 0.6 * e1 + 0.5 * e2 + 0.4 * np.cross(e1, e2)
+        pu, pv, h = m.project(atom)
+        assert np.allclose([pu[0], pv[0], h[0]], [0.6, 0.5, 0.4], atol=1e-4), y_fast
 
 
 @test
-def read_plane_with_2d_coordinates_and_its_errors():
-    path, u, v, Z, *_ = _fake_plane(TMP, with_xyz=False, blank_rows=False)
+def read_plane_other_layouts_and_bohr_and_errors():
+    path, u, v, Z, origin, e1, e2 = _fake_plane(TMP, "4col", unit="bohr")
+    m = ps.read_plane(path, unit="bohr")
+    assert np.allclose(m.u, u, atol=1e-5) and np.allclose(m.v, v, atol=1e-5) and np.allclose(m.Z, Z)
+    assert np.allclose(m.project(origin + 0.3 * e1)[0], 0.3, atol=1e-4)
+    path, u, v, Z, *_ = _fake_plane(TMP, "3col")
     m = ps.read_plane(path)
     assert np.allclose(m.u, u, atol=1e-5) and np.allclose(m.v, v, atol=1e-5) and np.allclose(m.Z, Z)
     try:
