@@ -951,6 +951,45 @@ def read_plane_other_layouts_and_bohr_and_errors():
         raise AssertionError("an incomplete grid must be rejected")
 
 
+@test
+def plane_template_marks_atoms_on_the_plane_and_can_move_the_origin():
+    proj = TMP / "plane_e2e"
+    proj.mkdir()
+    r = run_py(INIT, proj, "ELF_head", "--plane")
+    assert r.returncode == 0, r.stdout + r.stderr
+    folder = proj / "figures" / "001_ELF_head"
+    plot = folder / "plot.py"
+    assert sorted(p.name for p in folder.iterdir()) == ["README.md", "archive", "data", "plot.py"]
+    assert "ELF_head" in plot.read_text(encoding="utf-8") and "__" not in (folder / "README.md").read_text(encoding="utf-8").replace("__init__", "")
+    # missing data: a clear message, no traceback
+    r = run_py(plot, cwd=folder)
+    assert r.returncode != 0 and "data/plane.txt is missing" in (r.stdout + r.stderr), r.stdout + r.stderr
+    assert "Traceback" not in r.stderr, r.stderr
+    # data: Multiwfn-like file (y fastest), three atoms in the plane at known (u, v), one 0.1 Å
+    # above it (still marked) and one 2 Å above it (not marked)
+    path, u, v, Z, origin, e1, e2 = _fake_plane(TMP, "6col", y_fast=True, blank_rows=True)
+    (folder / "data" / "plane.txt").write_text(path.read_text())
+    n = np.cross(e1, e2)
+    pts = {("1", "Li"): origin + 0.9 * e1 + 0.50 * e2, ("2", "O"): origin + 0.3 * e1 + 0.25 * e2,
+           ("3", "S"): origin + 1.5 * e1 + 0.75 * e2 + 0.1 * n, ("4", "Cl"): origin + 0.6 * e1 + 0.5 * e2 + 2.0 * n}
+    (folder / "data" / "atoms.txt").write_text(
+        "\n".join(f"{i} {el} {p[0]:.6f} {p[1]:.6f} {p[2]:.6f}" for (i, el), p in pts.items()) + "\n")
+    r = run_py(plot, cwd=folder)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "3 atoms within 0.4" in r.stdout and "Cl4" not in r.stdout.split("\n")[0], r.stdout
+    for mode in ("normal", "soft"):
+        report = (folder / "output" / mode / f"{folder.name}_{mode}_checks.txt").read_text(encoding="utf-8")
+        assert "FAIL" not in report, report
+    # origin on an atom: still runs, and a name that is not in the file is refused clearly
+    s = plot.read_text(encoding="utf-8")
+    plot.write_text(s.replace("ORIGIN_ATOM = None ", 'ORIGIN_ATOM = "Li1" ', 1), encoding="utf-8")
+    r = run_py(plot, cwd=folder)
+    assert r.returncode == 0 and "3 atoms within 0.4" in r.stdout, r.stdout + r.stderr
+    plot.write_text(s.replace("ORIGIN_ATOM = None ", 'ORIGIN_ATOM = "Zz9" ', 1), encoding="utf-8")
+    r = run_py(plot, cwd=folder)
+    assert r.returncode != 0 and "not in data/atoms.txt" in (r.stdout + r.stderr), r.stdout + r.stderr
+
+
 # ---------------------------------------------------------------- no personal leftovers
 
 @test
