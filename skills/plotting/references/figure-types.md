@@ -102,6 +102,7 @@
 
 - 有正负的量（差分电荷密度、电荷转移）：`cmap=ps.DIVERGING`，色标范围对称（`vmin=-a, vmax=a`），零点白色。
 - 只有正值的量（锂离子概率密度、电荷密度）：`cmap=ps.sequential_cmap()`，零为白色。
+- 范围固定、有物理分界的量（ELF 等，0 到 1）例外，用 `cmap="turbo"`，见下面 Multiwfn 平面图一条。
 - **从分子动力学轨迹统计的密度图**（例如某一层里锂离子的概率密度）看起来"糊"、一格一格、满是噪点，原因不在图片分辨率，而在数据：分格太粗（0.25 Å 一格时，每个格子在图上就是一个看得见的小方块），每格里的计数又少（帧数少时低密度区全是零星噪点）。做法：
   1. 分格宽度 0.1 Å（`np.histogram2d`，范围取整个晶胞边长）。
   2. 用 `ps.smooth_density(H, sigma_bins=0.2 / 0.1)` 做高斯平滑，σ = 0.2 Å，周期性边界（默认 `periodic=True`）。平滑核归一化，原子总数不变。σ 不要超过 0.3 Å，否则相邻位点会糊在一起。
@@ -114,7 +115,9 @@
 - 切片平面上的原子用小圆点标出（颜色取自登记文件，黑色细描边）。
 - README 写清：切片平面由哪几个原子或哪个晶面确定、插值方式、色标范围及是否截断。
 - **Multiwfn 平面图（ELF、电子密度的切片）**：在 Multiwfn 主功能 4 里选函数、点数和由三个原子定义的平面，关掉图窗后在结果菜单里选导出 `plane.txt` 的那一项，把文件复制进 `data/`。用 `m = ps.read_plane("data/plane.txt")` 读入：坐标默认按 Bohr 换成 Å（文件已经是 Å 时传 `unit="angstrom"`），数值原样返回。
-  - ELF 的范围固定为 0 到 1：`im = ax.imshow(m.Z, origin="lower", extent=m.extent, cmap=ps.sequential_cmap(), vmin=0, vmax=1, interpolation="bilinear")`，色标标题写 `"ELF"`，同一组图（几处接触）色标必须同为 0–1。ELF 是解析光滑的场，可以用 bilinear；上面"不许"针对的是没平滑的原始计数。
+  - ELF 的范围固定为 0 到 1，色标用 Turbo：`im = ax.imshow(m.Z, origin="lower", extent=m.extent, cmap="turbo", vmin=0, vmax=1, interpolation="bilinear")`，色标标题写 `"ELF"`，同一组图（几处接触）色标必须同为 0–1。ELF 是解析光滑的场，可以用 bilinear；上面"不许"针对的是没平滑的原始计数。
+  - 为什么这里不用白到深色的 `sequential_cmap()`：ELF 的 0.5（均匀电子气）是有物理意义的分界，文献也习惯用蓝到红的彩虹色读它；白底渐变会把 0.2–0.8 之间的区域糊成一片同色。Turbo 色相顺序是紫蓝、青绿、黄、橙红，近似 Multiwfn 默认的彩虹色（不是同一张色表），也是 VMD 的 Turbo 色标（`pubparts.colorbar` 的默认），和之后画的三维图配得上。`soft` 模式不改它，两种模式的色标一样。
+  - Turbo 对红绿色盲不友好：README 写明色标，图里重要的结论靠位置和原子标注说明，不要只靠颜色。
   - 文件带三维坐标（每行 `x y z 数值`）时，`u, v, h = m.project(xyz)` 把同一结构的原子坐标（Å）投到切片上，`h` 是离平面的距离。只标 `h` 小于约 0.5 Å 的原子（颜色取自登记文件）；离得更远的原子，价层被平面截到也会出现色块，但那不是平面上的原子，不画点。
   - 文件只有两列坐标（`x y 数值`）时 `m.project` 会报错，原子位置从 Multiwfn 带原子标注的图上读，写进 README。
   - 用赝势（如 CP2K 的 GTH）时，Li 的 1s² 作为价电子被显式保留，会出现 ELF≈1 的圆盘；O、S、Cl、P 的内层被赝势替掉，原子核处是低值小点，周围一圈是价层。README 注明，免得把 Li 圆盘当成键。
