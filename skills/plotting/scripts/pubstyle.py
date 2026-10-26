@@ -64,7 +64,9 @@ for _stream in (sys.stdout, sys.stderr):
 #          (spin-orbit, odd electron counts), the gap and direct/indirect from all
 #          k-points, last E-fermi from OUTCAR; colors.json is locked and written
 #          atomically; fake bold is detected; palette 2 (Lancet colours).
-STYLE_VERSION = "0.9.0"
+#   0.9.1: read_plane() reads Multiwfn plane maps (ELF, density slices); no change
+#          to existing functions, so figures drawn with 0.9.0 look the same.
+STYLE_VERSION = "0.9.1"
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
@@ -931,6 +933,89 @@ def smooth_density(H, sigma_bins: float, periodic: bool = True):
         padded = np.pad(out, pad, mode=mode)
         out = np.apply_along_axis(lambda v: np.convolve(v, k, mode="valid"), axis, padded)
     return out
+
+
+# ---------------------------------------------------------------- scalar-field slices
+#
+# A scalar field (ELF, electron density, ...) on a flat slice, exported by
+# Multiwfn as plane.txt (main function 4, then the export entry of the result
+# menu). Multiwfn writes Bohr. The file holds either "x y value" (2D slice
+# coordinates) or "x y z value" (real 3D position of every grid point, the
+# value is always the last column); blank lines between rows are ignored.
+
+BOHR_TO_ANG = 0.529177210903
+
+
+class PlaneMap:
+    """A scalar field on a regular rectangular slice. Attributes:
+      u, v     (nu,), (nv,) slice axes in Å, both starting at 0
+      Z        (nv, nu) values; draw with
+               ax.imshow(Z, origin="lower", extent=m.extent, ...)
+      origin, e1, e2   the slice's 3D frame in Å (grid point (0, 0) and the unit
+               vectors along u and v); None when the file had only 2D coordinates
+    """
+
+    def __init__(self, u, v, Z, origin=None, e1=None, e2=None):
+        self.u, self.v, self.Z = u, v, Z
+        self.origin, self.e1, self.e2 = origin, e1, e2
+
+    @property
+    def extent(self):
+        return (self.u[0], self.u[-1], self.v[0], self.v[-1])
+
+    def project(self, xyz):
+        """Atoms of the same structure (N x 3, Å) -> (u, v, h): position on the
+        slice and distance from its plane, all in Å. Only for 3D-coordinate files."""
+        if self.origin is None:
+            raise ValueError("this plane file holds only 2D coordinates, so atoms cannot be "
+                             "projected; read their positions off Multiwfn's labelled map "
+                             "and write them into the README")
+        d = np.atleast_2d(np.asarray(xyz, float)) - self.origin
+        return d @ self.e1, d @ self.e2, np.abs(d @ np.cross(self.e1, self.e2))
+
+
+def read_plane(path: str | Path, unit: str = "bohr") -> PlaneMap:
+    """Read Multiwfn's plane.txt. unit is the length unit of the coordinates in
+    the file ("bohr", Multiwfn's default, or "angstrom"); the result is in Å.
+    The values (last column) are returned unchanged."""
+    scale = {"bohr": BOHR_TO_ANG, "angstrom": 1.0}[unit.lower()]
+    rows = []
+    for line in Path(path).read_text(errors="replace").splitlines():
+        try:
+            rows.append([float(t) for t in line.replace("D", "E").split()])
+        except ValueError:
+            continue                      # header or comment line
+    rows = [r for r in rows if r]
+    if len(rows) < 4 or len({len(r) for r in rows}) != 1 or len(rows[0]) < 3:
+        raise ValueError(f"{path}: expected 3 columns (x y value) or 4 columns "
+                         "(x y z value) of numbers, one grid point per line")
+    a = np.array(rows)
+    val, xyz = a[:, -1], a[:, :-1]
+    if xyz.shape[1] == 2:
+        xs, ix = np.unique(np.round(xyz[:, 0], 6), return_inverse=True)
+        ys, iy = np.unique(np.round(xyz[:, 1], 6), return_inverse=True)
+        if len(xs) * len(ys) != len(val):
+            raise ValueError(f"{path}: the points do not form a complete rectangular grid")
+        Z = np.empty((len(ys), len(xs)))
+        Z[iy, ix] = val
+        return PlaneMap((xs - xs[0]) * scale, (ys - ys[0]) * scale, Z)
+    P = xyz[:, :3] * scale
+    d0 = P[1] - P[0]
+    step = np.linalg.norm(d0)
+    jump = np.flatnonzero(np.linalg.norm(np.diff(P, axis=0) - d0, axis=1) > 0.01 * step)
+    n1 = jump[0] + 1 if jump.size else len(P)          # points per row (fast direction)
+    if len(P) % n1 or len(P) // n1 < 2:
+        raise ValueError(f"{path}: cannot split the points into equal rows of a rectangular grid")
+    n2 = len(P) // n1
+    G = P.reshape(n2, n1, 3)
+    d2 = G[1, 0] - G[0, 0]
+    e1, e2 = d0 / step, d2 / np.linalg.norm(d2)
+    u = np.arange(n1) * step
+    v = np.arange(n2) * np.linalg.norm(d2)
+    rebuilt = G[0, 0] + u[None, :, None] * e1 + v[:, None, None] * e2
+    if abs(e1 @ e2) > 1e-3 or not np.allclose(G, rebuilt, atol=1e-3):
+        raise ValueError(f"{path}: the points are not a regular rectangular grid")
+    return PlaneMap(u, v, val.reshape(n2, n1), G[0, 0], e1, e2)
 
 
 # ---------------------------------------------------------------- band structures
