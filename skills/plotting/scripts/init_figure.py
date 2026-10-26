@@ -2,8 +2,11 @@
 """Create a new figure folder inside a project, or bring the project's style
 module up to date with this skill.
 
-    python init_figure.py <project_root> <descriptive_english_name>
+    python init_figure.py <project_root> <descriptive_english_name> [--plane]
     python init_figure.py --update-style <project_root>
+
+--plane starts the folder from the Multiwfn plane-map template (ELF or density on a
+plane, atoms on the plane marked automatically) instead of the curve template.
 
 Example:
     python init_figure.py ~/projects/Li6PS5Cl_doping Li6PS5Cl_bulk_DOS
@@ -163,13 +166,15 @@ def main() -> int:
             return 2
         sync_style(root / "figures" / "_style")
         return 0
-    if len(sys.argv) != 3:
+    args = [a for a in sys.argv[1:] if a != "--plane"]
+    plane = len(args) != len(sys.argv) - 1
+    if len(args) != 2:
         print(__doc__)
         return 2
-    root = project_root(sys.argv[1])
+    root = project_root(args[0])
     if root is None:
         return 2
-    name = sys.argv[2].strip()
+    name = args[1].strip()
     problem = bad_name(name)
     if problem:
         print(problem)
@@ -188,11 +193,15 @@ def main() -> int:
     folder.mkdir()
     (folder / "data").mkdir()
     (folder / "archive").mkdir()
-    for src, dst in (("plot_template.py", "plot.py"), ("README_template.md", "README.md")):
+    kind = "_plane" if plane else ""
+    for src, dst in ((f"plot{kind}_template.py", "plot.py"), (f"README{kind}_template.md", "README.md")):
         text = (SKILL / "templates" / src).read_text(encoding="utf-8")
         (folder / dst).write_text(text.replace("__FIGURE_NAME__", folder.name), encoding="utf-8")
     print(f"created {folder}/ (plot.py, README.md, data/, archive/; output/ appears on the first run)")
-    print("next: copy the data file into data/, fill README.md, edit plot.py, run it")
+    if plane:
+        print("next: copy plane.txt and atoms.txt into data/, fill README.md, run plot.py")
+    else:
+        print("next: copy the data file into data/, fill README.md, edit plot.py, run it")
     return 0
 
 

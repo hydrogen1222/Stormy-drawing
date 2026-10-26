@@ -115,6 +115,8 @@
 - 切片平面上的原子用小圆点标出（颜色取自登记文件，黑色细描边）。
 - README 写清：切片平面由哪几个原子或哪个晶面确定、插值方式、色标范围及是否截断。
 - **Multiwfn 平面图（ELF、电子密度的切片）**：在 Multiwfn 主功能 4 里选函数、点数和由三个原子定义的平面，关掉图窗后在结果菜单里选 `Export the current plane data to plane.txt`（编号以屏幕为准），把文件复制进 `data/`。导出时屏幕会写 `length unit is in Angstrom`，文件有 6 列：前三列笛卡尔坐标 X Y Z，第 4、5 列是图上的 x、y，最后一列是数值。用 `m = ps.read_plane("data/plane.txt")` 读入：默认坐标是 Å（屏幕写的是 Bohr 就传 `unit="bohr"`），图的横纵轴 `m.u`、`m.v` 与 Multiwfn 的图一致，数值原样返回。
+  - 起图用 `init_figure.py <项目> <名字> --plane`：生成的 `plot.py` 读 `data/plane.txt` 和 `data/atoms.txt`（每行 `序号 元素 x y z`，Å，序号与 molden 一致），离平面不超过 `H_MAX`（默认 0.4 Å）的原子自动画点加标签，换一个平面只需换这两个文件。
+  - 坐标轴：`u`、`v` 是平面内以 Å 计的位置，原点默认在 Multiwfn 的格点角，数字本身没有物理含义。把 `ORIGIN_ATOM` 设成关键原子（如 `"O337"`），轴上的数就变成离它多远，可以直接读出 Li–O 的距离；几张图（几处接触）用同一种原点约定。
   - ELF 的范围固定为 0 到 1，色标用 Turbo：`im = ax.imshow(m.Z, origin="lower", extent=m.extent, cmap="turbo", vmin=0, vmax=1, interpolation="bilinear")`，色标标题写 `"ELF"`，同一组图（几处接触）色标必须同为 0–1。ELF 是解析光滑的场，可以用 bilinear；上面"不许"针对的是没平滑的原始计数。
   - 为什么这里不用白到深色的 `sequential_cmap()`：ELF 的 0.5（均匀电子气）是有物理意义的分界，文献也习惯用蓝到红的彩虹色读它；白底渐变会把 0.2–0.8 之间的区域糊成一片同色。Turbo 色相顺序是紫蓝、青绿、黄、橙红，近似 Multiwfn 默认的彩虹色（不是同一张色表），也是 VMD 的 Turbo 色标（`pubparts.colorbar` 的默认），和之后画的三维图配得上。`soft` 模式不改它，两种模式的色标一样。
   - Turbo 对红绿色盲不友好：README 写明色标，图里重要的结论靠位置和原子标注说明，不要只靠颜色。
