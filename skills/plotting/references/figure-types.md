@@ -154,6 +154,7 @@ def draw():
 | 部件 | 函数 | 要点 |
 |---|---|---|
 | 色标条 | `pp.colorbar(vmin, vmax, title, orientation, length_cm, thickness_cm, ticks, decimals, bands, reverse)` | 数值范围必须和 VMD 的 Color Scale Data Range 一致（第一个值对应最左端颜色，最后一个值对应最右端，中间线性）；`bands=n` 对应 VMD 的 posterize，`reverse=True` 对应反转。**不随柔和模式变色**，必须和位图保持一致。拼图前取 VMD 图里几个像素和色标条对一下 |
+| 弱相互作用色标条 | `pp.nci_colorbar(method, vmin, vmax, labels, boundaries, bond, length_cm)` | IRI / NCI(RDG) / IGMH 的 sign(λ₂)ρ 色标，VMD 的 BGR 配色，下方带"吸引 / vdW / 排斥"三段括号，IRI 默认在蓝端外加"Chemical bond"虚线箭头。默认范围取卢天老师 Multiwfn 自带 VMD 脚本：`iri`/`nci` 为 −0.04~0.02，`igmh` 为 −0.05~0.05；用户在 VMD 里改过范围就传 `vmin`/`vmax`。见下方流程 |
 | 等值面图例 | `pp.isosurface_legend([0.002, -0.002], unit=..., title="Isovalue")` | 颜色默认正红负蓝（和 `ps.DIVERGING` 两端一致）；VMD 里用了别的颜色就把 `(值, 十六进制色)` 对传进去 |
 | 元素图例 | `pp.element_legend(["Li", "P", "S", "Cl"])` | 颜色取自登记文件（和曲线图一致，随色调模式变）；要和 VMD 原子颜色一致时用 `colors={"Li": "#..."}`，给定的色号原样使用 |
 | 坐标轴三角 | `pp.axes_triad(rotation, labels=("a", "b", "c"), vectors=晶格矢量)` | `rotation` 可直接给 VMD 的 `molinfo top get rotate_matrix`（4×4）；非正交晶胞传 `vectors`；朝向观察者的轴按投影画得很短 |
@@ -181,6 +182,12 @@ def draw():
 | 改标题或单位 | 改 `title` |
 
 刻度数字互相挤在一起时函数会报错并说明解决办法（少几个刻度、少几位小数、加长色标条），不会生成难看的图。字体的大小不能改：这是仓库的规则，需要缩放就在 PS 里整体缩放。
+
+**画 IRI / NCI / IGMH 色标条的流程：**
+1. 先问用户用的是哪种方法，以及 VMD 里 Color Scale Data Range 有没有改过（Representations → Trajectory，或脚本里的 `mol scaleminmax`）。没改过就用 `method` 的默认值，改过就传 `vmin`/`vmax`。
+2. 默认横放、长 8 cm，两端标数值，上方标题 sign(λ₂)ρ (a.u.)，下方三段括号。括号分界默认在色标 45% 和 78% 处（照卢老师图例的比例），是定性划分，不是阈值；用户要改就传 `boundaries=(b1, b2)`（a.u.）。
+3. 微调：括号文字用 `labels=(吸引, vdW, 排斥)`，`\n` 换行，`labels=None` 不画括号；`bond=True/False` 开关化学键箭头（IGMH 用大等值面展示共价键时可打开）；文字互相挤到时函数报错，按提示加长色标条或换行。
+4. 普通 `pp.colorbar` 也能画 BGR：`cmap="bgr"`。
 
 - 部件的检查：字体、字号、粗体、线宽（含方框、箭头的轮廓）和画布边缘照常检查；自由排版里文字压在线上是故意的，所以不查重叠。
 - 所有线 1.0 磅、文字 6 pt（色标条标题 7 pt）、深灰 `0.15`，和其他图一致。

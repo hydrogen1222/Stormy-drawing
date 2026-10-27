@@ -22,7 +22,7 @@ Linux、macOS、Windows 都能用。下文命令里的 `python` 在 Windows 上�
 | 画态密度、能带、能垒、径向分布函数、均方位移、阿伦尼乌斯图、二维色图、柱状图 | `references/figure-types.md` 里对应的那一节 |
 | 画晶体结构图 | `references/structures.md` |
 | Multiwfn 平面图（ELF、电子密度的切片，要标出平面上的原子） | **agent 自己执行** `python <skill>/scripts/init_figure.py <项目根目录> <英文描述名> --plane`，用生成的 `plot.py`，不要手写绘图代码。把用户给的 `plane.txt` 和原子列表（`序号 元素 x y z`，Å，序号与 molden 一致；用户没有就从他的结构文件生成）放进 `data/`。用户说“画布大小一致”“几张图字号要对得上”，意思是每厘米对应的 Å 数相同：设同一个 `WINDOW`（如 `(6.5, 6.5)`），不要把坐标轴撑大而留白边。细节见 `references/figure-types.md` 的 Multiwfn 平面图一条 |
-| 做要放进 PS/AI 里拼图的矢量部件：色标条（VMD 的 Turbo）、等值面图例、元素图例、坐标轴三角、比例尺、晶玻界面区域条、能级图、放大小图框、箭头和虚线框 | `references/figure-types.md` 的"拼图用的矢量部件"一节，函数在 `scripts/pubparts.py`。画色标条前必须先向用户要 VMD 的 min/max 和单位，不要猜；用户的微调要求对应哪个参数，该节有表 |
+| 做要放进 PS/AI 里拼图的矢量部件：色标条（VMD 的 Turbo、BGR，IRI/NCI/IGMH 的 sign(λ₂)ρ 色标）、等值面图例、元素图例、坐标轴三角、比例尺、晶玻界面区域条、能级图、放大小图框、箭头和虚线框 | `references/figure-types.md` 的"拼图用的矢量部件"一节，函数在 `scripts/pubparts.py`。画色标条前必须先向用户要 VMD 的 min/max 和单位，不要猜；用户的微调要求对应哪个参数，该节有表 |
 | 想看每种图在假数据上的样子，或者测试样式模块 | `examples/demo_all_types.py`（图）、`examples/demo_parts.py`（拼图部件） |
 | 改样式本身（字号、颜色、刻度） | 不要自己改，先问用户；改动写进本页"已定的样式" |
 
