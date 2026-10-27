@@ -17,7 +17,10 @@ Sizes are given in cm and are real: a part saved as 3.0 cm stays 3.0 cm.
 Parts (each returns a figure; the drawing helpers at the bottom put arrows,
 dashed boxes and distance lines onto a part from new_part):
 
-  colorbar            colour bar of a colour scale (default "turbo" = VMD's Turbo)
+  colorbar            colour bar of a colour scale (default "turbo" = VMD's Turbo;
+                      cmap="bgr" = VMD's BGR)
+  nci_colorbar        sign(lambda2)rho bar for IRI / NCI / IGMH pictures, with the
+                      attraction / vdW / repulsion brackets and the chemical-bond arrow
   isosurface_legend   coloured swatches with the isovalues, e.g. +0.002 / -0.002
   element_legend      atom colour dots with element symbols
   axes_triad          x/y/z (or a/b/c) arrows for a given view; VMD rotate_matrix works
@@ -141,6 +144,27 @@ def _nice_ticks(vmin, vmax, n=5):
 
 # ---------------------------------------------------------------- 1. colour bar
 
+def _vmd_bgr(midpoint: float = 0.5) -> ListedColormap:
+    """VMD's BGR colour scale (Graphics > Colors > Color Scale, method BGR): pure blue at
+    the minimum, pure green at the midpoint, pure red at the maximum, linear in between."""
+    t = np.linspace(0, 1, 257)                     # odd count: 0.5 is an exact entry
+    lo = t < midpoint
+    a = np.where(lo, t / midpoint, (t - midpoint) / (1 - midpoint))
+    rgb = np.stack([np.where(lo, 0, a), np.where(lo, a, 1 - a), np.where(lo, 1 - a, 0)], axis=1)
+    return ListedColormap(rgb, name="vmd_bgr")
+
+
+VMD_BGR = _vmd_bgr()
+
+
+def _cmap(cmap):
+    if isinstance(cmap, Colormap):
+        return cmap
+    if str(cmap).lower() in ("bgr", "vmd_bgr"):
+        return VMD_BGR
+    return plt.get_cmap(cmap)
+
+
 def colorbar(vmin: float, vmax: float, title: str, cmap="turbo", orientation: str = "vertical",
              length_cm: float = 6.0, thickness_cm: float = 0.22, ticks=None,
              decimals: int | None = None, bands: int | None = None, reverse: bool = False,
@@ -174,7 +198,7 @@ def colorbar(vmin: float, vmax: float, title: str, cmap="turbo", orientation: st
         raise ValueError("thickness_cm must be between 0.05 and 2 cm")
     if decimals is not None and not (0 <= int(decimals) <= 6):
         raise ValueError("decimals must be between 0 and 6")
-    base = plt.get_cmap(cmap) if not isinstance(cmap, Colormap) else cmap
+    base = _cmap(cmap)
     if bands is not None:
         if bands < 2 or bands > 64:
             raise ValueError("bands must be between 2 and 64")
@@ -236,6 +260,116 @@ def colorbar(vmin: float, vmax: float, title: str, cmap="turbo", orientation: st
     w = x_hi - x_lo + 2 * margin
     h = y_hi - y_lo + 2 * margin
     fig, _ = build(w, h, 10.0 - x_lo + margin, 10.0 - y_lo + margin)
+    return fig
+
+
+# ---------------------------------------------------------------- 1b. sign(lambda2)rho bar
+
+# Default Color Scale Data Range of Tian Lu's VMD scripts in Multiwfn's examples folder:
+# RDGfill.vmd / IRIfill.vmd use -0.04 to 0.02, IGM_inter.vmd / IGM_intra.vmd -0.05 to 0.05.
+NCI_PRESETS = {"iri": (-0.04, 0.02, True), "nci": (-0.04, 0.02, False),
+               "rdg": (-0.04, 0.02, False), "igmh": (-0.05, 0.05, False),
+               "igm": (-0.05, 0.05, False)}
+NCI_LABELS = ("Attraction\n(H-bond, halogen bond)", "vdW", "Repulsion\n(steric)")
+# Region boundaries as fractions of the bar, measured from Tian Lu's own legend.
+NCI_SPLIT = (0.45, 0.78)
+
+
+def nci_colorbar(method: str = "iri", vmin: float | None = None, vmax: float | None = None,
+                 title: str = r"sign($\lambda_2$)$\rho$ (a.u.)", labels=NCI_LABELS,
+                 boundaries=None, bond: bool | None = None, bond_label: str = "Chemical\nbond",
+                 length_cm: float = 8.0, thickness_cm: float = 0.35, decimals: int | None = None):
+    """Horizontal BGR bar for sign(lambda2)rho-coloured isosurfaces (IRI, NCI/RDG, IGM,
+    IGMH), with brackets underneath naming the kind of interaction.
+
+      method       "iri", "nci"/"rdg" (-0.04 .. 0.02) or "igmh"/"igm" (-0.05 .. 0.05):
+                   the default ranges of the VMD scripts that come with Multiwfn
+      vmin, vmax   override the range; they must equal VMD's Color Scale Data Range
+                   (Representations > Trajectory, or `mol scaleminmax` in the script)
+      labels       three texts for the brackets (blue, green, red part); "\n" breaks a
+                   line; None leaves the brackets out
+      boundaries   (b1, b2) in a.u. where the brackets meet; default at 45 % and 78 % of
+                   the bar, as in Lu's legend. The split is qualitative, not a threshold
+      bond         dashed arrow beyond the blue end for rho >> 0 (chemical bonds, which
+                   VMD paints saturated blue); default True for IRI only
+      decimals     digits of the two end values; None = as short as they allow
+    The colours never follow the soft mode. Labels that would run into each other are an
+    error: use a longer bar, shorter texts or more line breaks."""
+    key = str(method).lower()
+    if key not in NCI_PRESETS:
+        raise ValueError(f"method must be one of {sorted(NCI_PRESETS)}")
+    p_lo, p_hi, p_bond = NCI_PRESETS[key]
+    vmin = p_lo if vmin is None else float(vmin)
+    vmax = p_hi if vmax is None else float(vmax)
+    bond = p_bond if bond is None else bool(bond)
+    if not (math.isfinite(vmin) and math.isfinite(vmax) and vmin < vmax):
+        raise ValueError(f"vmin {vmin} must be smaller than vmax {vmax}")
+    if not (3.0 <= length_cm <= 20.0):
+        raise ValueError("length_cm must be between 3 and 20 cm")
+    if not (0.1 <= thickness_cm <= 1.5):
+        raise ValueError("thickness_cm must be between 0.1 and 1.5 cm")
+    if labels is not None and len(labels) != 3:
+        raise ValueError("labels needs three texts: attraction, vdW, repulsion")
+    if boundaries is None:
+        boundaries = tuple(vmin + f * (vmax - vmin) for f in NCI_SPLIT)
+    b1, b2 = (float(b) for b in boundaries)
+    if not (vmin < b1 < b2 < vmax):
+        raise ValueError(f"boundaries must satisfy vmin < b1 < b2 < vmax, got {boundaries}")
+
+    def fmt(v):
+        txt = f"{v:.{int(decimals)}f}" if decimals is not None else f"{v:g}"
+        return ("+" if v > 0 else "") + txt.replace("-", "\u2212")
+
+    L, T = length_cm, thickness_cm
+    # horizontal room: chemical-bond arrow on the left, label overflow on both ends
+    bond_w = (max(_text_cm(s) for s in bond_label.split("\n")) + 0.2) if bond else 0.0
+    bond_w = max(bond_w, 1.2) if bond else 0.0
+    xs = [vmin, b1, b2, vmax]
+    frac = [(x - vmin) / (vmax - vmin) for x in xs]
+    spans = list(zip(frac, frac[1:]))
+    lab_w = ([max(_text_cm(s) for s in t.split("\n")) for t in labels] if labels else [0, 0, 0])
+    lines = max(t.count("\n") + 1 for t in labels) if labels else 0
+    over_l = max(0.0, lab_w[0] / 2 - spans[0][1] * L / 2)
+    over_r = max(0.0, lab_w[2] / 2 - (1 - spans[2][0]) * L / 2)
+    end_l, end_r = _text_cm(fmt(vmin)) / 2, _text_cm(fmt(vmax)) / 2
+    left = 0.12 + max(bond_w, over_l, end_l)
+    w = left + L + max(over_r, end_r) + 0.12
+    row = 0.27                                        # one line of 6 pt text, cm
+    below = (0.45 + lines * row) if labels else 0.0
+    h = 0.12 + below + T + 0.30 + 0.38 + 0.12        # brackets, bar, end values, title
+    fig, ax = new_part(w, h)
+    fig._pubstyle_part_name = "nci_colorbar"
+    y0 = 0.12 + below
+    ax.imshow(np.linspace(0, 1, 512)[None, :], cmap=VMD_BGR, aspect="auto",
+              extent=(left, left + L, y0, y0 + T), interpolation="bilinear", zorder=1)
+    ax.add_patch(Rectangle((left, y0), L, T, fill=False, ec=INK, lw=ps.FRAME_LW, zorder=2,
+                           clip_on=False))
+    label(ax, left, y0 + T + 0.15, fmt(vmin), ha="center", va="bottom")
+    label(ax, left + L, y0 + T + 0.15, fmt(vmax), ha="center", va="bottom")
+    label(ax, left + L / 2, y0 + T + 0.15, title, ha="center", va="bottom")
+    if bond:
+        ym = y0 + T / 2
+        x_end = left - bond_w + 0.05
+        line(ax, (left - 0.08, ym), (x_end + 0.15, ym), dashed=True)
+        arrow(ax, (x_end + 0.16, ym), (x_end, ym))
+        label(ax, (left - 0.08 + x_end) / 2, ym - 0.12, bond_label, ha="center", va="top")
+    if labels:
+        yb = y0 - 0.12
+        boxes = []
+        for (f0, f1), text in zip(spans, labels):
+            xa, xb = left + f0 * L + 0.04, left + f1 * L - 0.04
+            line(ax, (xa, yb), (xa, yb - 0.12))
+            line(ax, (xa, yb - 0.12), (xb, yb - 0.12))
+            line(ax, (xb, yb), (xb, yb - 0.12))
+            xc = (xa + xb) / 2
+            label(ax, xc, yb - 0.24, text, ha="center", va="top")
+            half = max(_text_cm(s) for s in text.split("\n")) / 2
+            boxes.append((xc - half, xc + half))
+        for (_, r0), (l1, _) in zip(boxes, boxes[1:]):
+            if r0 + 0.1 > l1:
+                plt.close(fig)
+                raise ValueError("nci_colorbar labels run into each other; use a longer bar "
+                                 "(length_cm), shorter labels or line breaks (\\n)")
     return fig
 
 

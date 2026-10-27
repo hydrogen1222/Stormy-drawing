@@ -707,6 +707,10 @@ def every_part_passes_the_style_checks():
     parts = {
         "colorbar_v": pp.colorbar(-0.05, 0.05, "ESP (a.u.)"),
         "colorbar_h": pp.colorbar(0, 1, "ELF", orientation="horizontal", bands=6, reverse=True),
+        "colorbar_bgr": pp.colorbar(-0.04, 0.02, r"sign($\lambda_2$)$\rho$ (a.u.)", cmap="bgr"),
+        "nci_iri": pp.nci_colorbar("iri"),
+        "nci_igmh": pp.nci_colorbar("igmh"),
+        "nci_plain": pp.nci_colorbar("nci", labels=None),
         "iso": pp.isosurface_legend([0.002, -0.002], unit=r"e $\rm\AA^{\rm -3}$", title="Isovalue"),
         "iso_v": pp.isosurface_legend([0.02, -0.02], orientation="vertical"),
         "elements": pp.element_legend(["Li", "P", "S", "Cl", "Na"], reg=reg, ncols=3),
@@ -783,6 +787,31 @@ def colorbar_is_turbo_like_vmd_and_ignores_the_soft_mode():
     raises(ValueError, pp.colorbar, 1, 1, "x", match="smaller")
     raises(ValueError, pp.colorbar, 0, 1, "x", orientation="diagonal")
     raises(ValueError, pp.colorbar, 0, 1, "x", bands=1)
+
+
+@test
+def nci_colorbar_uses_vmd_bgr_and_lu_script_ranges():
+    from matplotlib.colors import to_hex
+    assert [to_hex(c) for c in pp.VMD_BGR(np.array([0.0, 0.5, 1.0]))] == ["#0000ff", "#00ff00", "#ff0000"]
+    def ends(fig):
+        texts = [t.get_text() for t in fig.axes[0].texts]
+        return texts
+    iri = pp.nci_colorbar("iri")
+    assert "\u22120.04" in ends(iri) and "+0.02" in ends(iri) and "Chemical\nbond" in ends(iri)
+    igmh = pp.nci_colorbar("igmh")
+    assert "\u22120.05" in ends(igmh) and "+0.05" in ends(igmh) and "Chemical\nbond" not in ends(igmh)
+    img = igmh.axes[0].images[0]
+    assert img.cmap is pp.VMD_BGR
+    try:
+        ps.apply(mode="soft")
+        assert pp.nci_colorbar("iri").axes[0].images[0].cmap is pp.VMD_BGR   # never softened
+    finally:
+        ps.apply()
+    ps.plt.close("all")
+    raises(ValueError, pp.nci_colorbar, "esp")
+    raises(ValueError, pp.nci_colorbar, "iri", boundaries=(0.01, -0.01))
+    raises(ValueError, pp.nci_colorbar, "iri", length_cm=3,
+           labels=("A very long attraction label", "A long vdW label", "Repulsion"), match="run into")
 
 
 @test
