@@ -733,7 +733,7 @@ def every_part_passes_the_style_checks():
         "colorbar_bgr": pp.colorbar(-0.04, 0.02, r"sign($\lambda_2$)$\rho$ (a.u.)", cmap="bgr"),
         "nci_iri": pp.nci_colorbar("iri"),
         "nci_igmh": pp.nci_colorbar("igmh"),
-        "nci_plain": pp.nci_colorbar("nci", labels=None),
+        "nci_plain": pp.nci_colorbar("nci", labels=None, header=False),
         "iso": pp.isosurface_legend([0.002, -0.002], unit=r"e $\rm\AA^{\rm -3}$", title="Isovalue"),
         "iso_v": pp.isosurface_legend([0.02, -0.02], orientation="vertical"),
         "elements": pp.element_legend(["Li", "P", "S", "Cl", "Na"], reg=reg, ncols=3),
@@ -816,15 +816,18 @@ def colorbar_is_turbo_like_vmd_and_ignores_the_soft_mode():
 def nci_colorbar_uses_vmd_bgr_and_lu_script_ranges():
     from matplotlib.colors import to_hex
     assert [to_hex(c) for c in pp.VMD_BGR(np.array([0.0, 0.5, 1.0]))] == ["#0000ff", "#00ff00", "#ff0000"]
-    def ends(fig):
-        texts = [t.get_text() for t in fig.axes[0].texts]
-        return texts
-    iri = pp.nci_colorbar("iri")
-    assert "\u22120.04" in ends(iri) and "+0.02" in ends(iri) and "Chemical\nbond" in ends(iri)
-    igmh = pp.nci_colorbar("igmh")
-    assert "\u22120.05" in ends(igmh) and "+0.05" in ends(igmh) and "Chemical\nbond" not in ends(igmh)
-    img = igmh.axes[0].images[0]
-    assert img.cmap is pp.VMD_BGR
+
+    def texts(fig):
+        return [t.get_text() for t in fig.axes[0].texts]
+    iri = texts(pp.nci_colorbar("iri"))
+    assert "\u22120.04 a.u." in iri and "+0.02 a.u." in iri and "Chemical bond" in iri
+    assert any("decreases" in t for t in iri) and r"$\lambda_2$ < 0" in iri
+    igmh = texts(pp.nci_colorbar("igmh"))
+    assert "\u22120.05 a.u." in igmh and "+0.05 a.u." in igmh
+    assert any("covalency" in t for t in igmh) and any("ionic bond" in t for t in igmh)
+    nci = texts(pp.nci_colorbar("nci", labels=None, header=False, unit=""))
+    assert nci == ["\u22120.04", "+0.02"], nci
+    assert pp.nci_colorbar("igmh").axes[0].images[0].cmap is pp.VMD_BGR
     try:
         ps.apply(mode="soft")
         assert pp.nci_colorbar("iri").axes[0].images[0].cmap is pp.VMD_BGR   # never softened
@@ -833,7 +836,8 @@ def nci_colorbar_uses_vmd_bgr_and_lu_script_ranges():
     ps.plt.close("all")
     raises(ValueError, pp.nci_colorbar, "esp")
     raises(ValueError, pp.nci_colorbar, "iri", boundaries=(0.01, -0.01))
-    raises(ValueError, pp.nci_colorbar, "iri", length_cm=3,
+    raises(ValueError, pp.nci_colorbar, "iri", spans=((0, 0.6), (0.5, 0.8), (0.8, 1)))
+    raises(ValueError, pp.nci_colorbar, "iri", length_cm=4,
            labels=("A very long attraction label", "A long vdW label", "Repulsion"), match="run into")
 
 

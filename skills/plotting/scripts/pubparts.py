@@ -267,109 +267,187 @@ def colorbar(vmin: float, vmax: float, title: str, cmap="turbo", orientation: st
 
 # Default Color Scale Data Range of Tian Lu's VMD scripts in Multiwfn's examples folder:
 # RDGfill.vmd / IRIfill.vmd use -0.04 to 0.02, IGM_inter.vmd / IGM_intra.vmd -0.05 to 0.05.
-NCI_PRESETS = {"iri": (-0.04, 0.02, True), "nci": (-0.04, 0.02, False),
-               "rdg": (-0.04, 0.02, False), "igmh": (-0.05, 0.05, False),
-               "igm": (-0.05, 0.05, False)}
-NCI_LABELS = ("Attraction\n(H-bond, halogen bond)", "vdW", "Repulsion\n(steric)")
-# Region boundaries as fractions of the bar, measured from Tian Lu's own legend.
-NCI_SPLIT = (0.45, 0.78)
+# Labels, bracket positions (fractions of the bar) and the bond arrow follow Lu's own
+# legends: the IRI one (Chemistry-Methods 2021) and the IGMH one (sobereva.com/621).
+_IRI_STYLE = {
+    "range": (-0.04, 0.02),
+    "spans": ((0.0, 0.45), (0.455, 0.775), (0.78, 1.0)),
+    "labels": ("Notable attraction:\nH-bond, halogen bond...",
+               "vdW\ninteraction",
+               "Notable repulsion:\nsteric effect in\nring and cage..."),
+    "bond": "Chemical bond",
+}
+_IGMH_STYLE = {
+    "range": (-0.05, 0.05),
+    "spans": ((0.01, 0.34), (0.37, 0.62), (0.65, 0.99)),
+    "labels": ("Prominent attractive\nweak interaction\n(H-bond, halogen bond...),\nand purely ionic bond",
+               "van der Waals\ninteraction",
+               "Prominent repulsive\ninteraction (steric effect\nin ring and cage...)"),
+    "bond": "Bond with\nnonnegligible\ncovalency",
+}
+NCI_STYLES = {"iri": _IRI_STYLE, "nci": dict(_IRI_STYLE, bond=None), "rdg": dict(_IRI_STYLE, bond=None),
+              "igmh": _IGMH_STYLE, "igm": _IGMH_STYLE}
+NCI_PRESETS = {k: (*v["range"], v["bond"] is not None) for k, v in NCI_STYLES.items()}
+# Colours of the three braces, after Lu's legends (blue, green, dark red).
+NCI_BRACE_COLORS = ("#4A72C4", "#3A9A3A", "#A33A4A")
+
+
+def _brace(ax, x0: float, x1: float, y: float, depth: float, color):
+    """Curly brace opening upward (towards a bar above it), tip pointing down at the
+    middle; y is the top of the brace, depth its height (cm)."""
+    from matplotlib.path import Path as MPath
+    from matplotlib.patches import PathPatch
+    xm, d = (x0 + x1) / 2, depth
+    q = min(d * 0.5, (x1 - x0) / 4)
+    verts = [(x0, y), (x0, y - d / 2), (x0 + q, y - d / 2), (x0 + q, y - d / 2),
+             (xm - q, y - d / 2), (xm - q, y - d / 2), (xm, y - d / 2), (xm, y - d),
+             (xm, y - d / 2), (xm + q, y - d / 2), (xm + q, y - d / 2),
+             (x1 - q, y - d / 2), (x1 - q, y - d / 2), (x1, y - d / 2), (x1, y)]
+    codes = [MPath.MOVETO, MPath.CURVE3, MPath.CURVE3, MPath.LINETO,
+             MPath.LINETO, MPath.LINETO, MPath.CURVE3, MPath.CURVE3,
+             MPath.CURVE3, MPath.CURVE3, MPath.LINETO,
+             MPath.LINETO, MPath.LINETO, MPath.CURVE3, MPath.CURVE3]
+    ax.add_patch(PathPatch(MPath(verts, codes), fill=False, ec=color, lw=ps.DATA_LW,
+                           capstyle="round", clip_on=False))
 
 
 def nci_colorbar(method: str = "iri", vmin: float | None = None, vmax: float | None = None,
-                 title: str = r"sign($\lambda_2$)$\rho$ (a.u.)", labels=NCI_LABELS,
-                 boundaries=None, bond: bool | None = None, bond_label: str = "Chemical\nbond",
-                 length_cm: float = 8.0, thickness_cm: float = 0.35, decimals: int | None = None):
+                 unit: str = "a.u.", labels="default", spans=None, boundaries=None,
+                 bond: bool | None = None, bond_label: str | None = None, header: bool = True,
+                 brace_colors=NCI_BRACE_COLORS, length_cm: float = 9.0,
+                 thickness_cm: float = 0.4, decimals: int | None = None):
     """Horizontal BGR bar for sign(lambda2)rho-coloured isosurfaces (IRI, NCI/RDG, IGM,
-    IGMH), with brackets underneath naming the kind of interaction.
+    IGMH), drawn after Tian Lu's legends: the rho / lambda2 rows with the two arrows
+    above the bar, end values beside it, coloured braces with the kind of interaction
+    below it, and a dashed arrow for rho >> 0 (bonds) beyond the blue end.
 
-      method       "iri", "nci"/"rdg" (-0.04 .. 0.02) or "igmh"/"igm" (-0.05 .. 0.05):
-                   the default ranges of the VMD scripts that come with Multiwfn
+      method       "iri", "nci"/"rdg" (-0.04 .. 0.02, IRI wording) or "igmh"/"igm"
+                   (-0.05 .. 0.05, IGMH wording): ranges of the VMD scripts in Multiwfn
       vmin, vmax   override the range; they must equal VMD's Color Scale Data Range
-                   (Representations > Trajectory, or `mol scaleminmax` in the script)
-      labels       three texts for the brackets (blue, green, red part); "\n" breaks a
-                   line; None leaves the brackets out
-      boundaries   (b1, b2) in a.u. where the brackets meet; default at 45 % and 78 % of
-                   the bar, as in Lu's legend. The split is qualitative, not a threshold
-      bond         dashed arrow beyond the blue end for rho >> 0 (chemical bonds, which
-                   VMD paints saturated blue); default True for IRI only
-      decimals     digits of the two end values; None = as short as they allow
-    The colours never follow the soft mode. Labels that would run into each other are an
-    error: use a longer bar, shorter texts or more line breaks."""
+      unit         written after both end values ("" for none)
+      labels       "default" = Lu's wording for the method; three texts (blue, green,
+                   red part, "\\n" breaks a line); None = no braces
+      spans        three (start, end) fractions of the bar under the braces; or give
+      boundaries   (b1, b2) in a.u. for three touching braces. Qualitative, not thresholds
+      bond         dashed arrow for rho >> 0; default on for IRI and IGMH, off for NCI
+      bond_label   text under it (default: Lu's wording for the method)
+      header       the rho > 0 / lambda2 < 0 ... rows and arrows above the bar
+    The colours never follow the soft mode. Texts that would run into each other are
+    an error: use a longer bar, shorter labels or more line breaks."""
     key = str(method).lower()
-    if key not in NCI_PRESETS:
-        raise ValueError(f"method must be one of {sorted(NCI_PRESETS)}")
-    p_lo, p_hi, p_bond = NCI_PRESETS[key]
-    vmin = p_lo if vmin is None else float(vmin)
-    vmax = p_hi if vmax is None else float(vmax)
-    bond = p_bond if bond is None else bool(bond)
+    if key not in NCI_STYLES:
+        raise ValueError(f"method must be one of {sorted(NCI_STYLES)}")
+    st = NCI_STYLES[key]
+    vmin = st["range"][0] if vmin is None else float(vmin)
+    vmax = st["range"][1] if vmax is None else float(vmax)
+    bond = (st["bond"] is not None) if bond is None else bool(bond)
+    bond_label = bond_label or st["bond"] or _IRI_STYLE["bond"]
     if not (math.isfinite(vmin) and math.isfinite(vmax) and vmin < vmax):
         raise ValueError(f"vmin {vmin} must be smaller than vmax {vmax}")
-    if not (3.0 <= length_cm <= 20.0):
-        raise ValueError("length_cm must be between 3 and 20 cm")
+    if not (4.0 <= length_cm <= 20.0):
+        raise ValueError("length_cm must be between 4 and 20 cm")
     if not (0.1 <= thickness_cm <= 1.5):
         raise ValueError("thickness_cm must be between 0.1 and 1.5 cm")
+    if isinstance(labels, str):
+        if labels != "default":
+            raise ValueError('labels must be "default", three texts or None')
+        labels = st["labels"]
     if labels is not None and len(labels) != 3:
         raise ValueError("labels needs three texts: attraction, vdW, repulsion")
-    if boundaries is None:
-        boundaries = tuple(vmin + f * (vmax - vmin) for f in NCI_SPLIT)
-    b1, b2 = (float(b) for b in boundaries)
-    if not (vmin < b1 < b2 < vmax):
-        raise ValueError(f"boundaries must satisfy vmin < b1 < b2 < vmax, got {boundaries}")
+    if boundaries is not None:
+        b1, b2 = (float(b) for b in boundaries)
+        if not (vmin < b1 < b2 < vmax):
+            raise ValueError(f"boundaries must satisfy vmin < b1 < b2 < vmax, got {boundaries}")
+        f1, f2 = (b1 - vmin) / (vmax - vmin), (b2 - vmin) / (vmax - vmin)
+        spans = ((0.0, f1), (f1, f2), (f2, 1.0))
+    spans = [tuple(map(float, s)) for s in (spans or st["spans"])]
+    if len(spans) != 3 or any(not (0 <= a < b <= 1) for a, b in spans) \
+            or any(spans[i][1] > spans[i + 1][0] for i in range(2)):
+        raise ValueError("spans must be three ordered, non-overlapping (start, end) "
+                         "fractions between 0 and 1")
 
     def fmt(v):
         txt = f"{v:.{int(decimals)}f}" if decimals is not None else f"{v:g}"
-        return ("+" if v > 0 else "") + txt.replace("-", "\u2212")
+        txt = ("+" if v > 0 else "") + txt.replace("-", "−")
+        return f"{txt} {unit}" if unit else txt
 
-    L, T = length_cm, thickness_cm
-    # horizontal room: chemical-bond arrow on the left, label overflow on both ends
-    bond_w = (max(_text_cm(s) for s in bond_label.split("\n")) + 0.2) if bond else 0.0
-    bond_w = max(bond_w, 1.2) if bond else 0.0
-    xs = [vmin, b1, b2, vmax]
-    frac = [(x - vmin) / (vmax - vmin) for x in xs]
-    spans = list(zip(frac, frac[1:]))
-    lab_w = ([max(_text_cm(s) for s in t.split("\n")) for t in labels] if labels else [0, 0, 0])
-    lines = max(t.count("\n") + 1 for t in labels) if labels else 0
-    over_l = max(0.0, lab_w[0] / 2 - spans[0][1] * L / 2)
-    over_r = max(0.0, lab_w[2] / 2 - (1 - spans[2][0]) * L / 2)
-    end_l, end_r = _text_cm(fmt(vmin)) / 2, _text_cm(fmt(vmax)) / 2
-    left = 0.12 + max(bond_w, over_l, end_l)
-    w = left + L + max(over_r, end_r) + 0.12
-    row = 0.27                                        # one line of 6 pt text, cm
-    below = (0.45 + lines * row) if labels else 0.0
-    h = 0.12 + below + T + 0.30 + 0.38 + 0.12        # brackets, bar, end values, title
-    fig, ax = new_part(w, h)
-    fig._pubstyle_part_name = "nci_colorbar"
-    y0 = 0.12 + below
-    ax.imshow(np.linspace(0, 1, 512)[None, :], cmap=VMD_BGR, aspect="auto",
-              extent=(left, left + L, y0, y0 + T), interpolation="bilinear", zorder=1)
-    ax.add_patch(Rectangle((left, y0), L, T, fill=False, ec=INK, lw=ps.FRAME_LW, zorder=2,
-                           clip_on=False))
-    label(ax, left, y0 + T + 0.15, fmt(vmin), ha="center", va="bottom")
-    label(ax, left + L, y0 + T + 0.15, fmt(vmax), ha="center", va="bottom")
-    label(ax, left + L / 2, y0 + T + 0.15, title, ha="center", va="bottom")
-    if bond:
+    L, T, gap = length_cm, thickness_cm, 0.12
+    row = 0.34                                                # one line of 6 pt text plus air, cm
+
+    def build(canvas_w, canvas_h, x0, y0):
+        """Draw with the bar's lower-left corner at (x0, y0) cm; returns fig and the
+        list of text artists that must not touch each other."""
+        fig, ax = new_part(canvas_w, canvas_h)
+        fig._pubstyle_part_name = "nci_colorbar"
+        ax.imshow(np.linspace(0, 1, 512)[None, :], cmap=VMD_BGR, aspect="auto",
+                  extent=(x0, x0 + L, y0, y0 + T), interpolation="bilinear", zorder=1)
+        ax.add_patch(Rectangle((x0, y0), L, T, fill=False, ec=INK, lw=ps.FRAME_LW, zorder=2,
+                               clip_on=False))
         ym = y0 + T / 2
-        x_end = left - bond_w + 0.05
-        line(ax, (left - 0.08, ym), (x_end + 0.15, ym), dashed=True)
-        arrow(ax, (x_end + 0.16, ym), (x_end, ym))
-        label(ax, (left - 0.08 + x_end) / 2, ym - 0.12, bond_label, ha="center", va="top")
-    if labels:
-        yb = y0 - 0.12
-        boxes = []
-        for (f0, f1), text in zip(spans, labels):
-            xa, xb = left + f0 * L + 0.04, left + f1 * L - 0.04
-            line(ax, (xa, yb), (xa, yb - 0.12))
-            line(ax, (xa, yb - 0.12), (xb, yb - 0.12))
-            line(ax, (xb, yb), (xb, yb - 0.12))
-            xc = (xa + xb) / 2
-            label(ax, xc, yb - 0.24, text, ha="center", va="top")
-            half = max(_text_cm(s) for s in text.split("\n")) / 2
-            boxes.append((xc - half, xc + half))
-        for (_, r0), (l1, _) in zip(boxes, boxes[1:]):
-            if r0 + 0.1 > l1:
-                plt.close(fig)
-                raise ValueError("nci_colorbar labels run into each other; use a longer bar "
-                                 "(length_cm), shorter labels or line breaks (\\n)")
+        texts = [label(ax, x0 - gap, ym, fmt(vmin), ha="right"),
+                 label(ax, x0 + L + gap, ym, fmt(vmax), ha="left")]
+        if header:
+            y_lam = y0 + T + 0.12
+            y_rho = y_lam + row
+            xc = x0 + L / 2
+            for x, rho, lam in ((x0, r"$\rho$ > 0", r"$\lambda_2$ < 0"),
+                                (xc, r"$\rho \approx$ 0", r"$\lambda_2 \approx$ 0"),
+                                (x0 + L, r"$\rho$ > 0", r"$\lambda_2$ > 0")):
+                texts.append(label(ax, x, y_rho, rho, ha="center", va="bottom"))
+                texts.append(label(ax, x, y_lam, lam, ha="center", va="bottom"))
+            ya = y_lam + 0.11
+            half = max(_text_cm(r"$\lambda_2 \approx$ 0"), _text_cm(r"$\rho \approx$ 0")) / 2 + 0.15
+            end = max(_text_cm(r"$\lambda_2$ < 0"), _text_cm(r"$\rho$ > 0")) / 2 + 0.15
+            arrow(ax, (xc - half, ya), (x0 + end, ya))
+            arrow(ax, (xc + half, ya), (x0 + L - end, ya))
+            for xa, xb, word in ((x0 + end, xc - half, "decreases"), (xc + half, x0 + L - end, "increases")):
+                texts.append(label(ax, (xa + xb) / 2, ya + 0.07, r"sign($\lambda_2$)$\rho$ " + word,
+                                   ha="center", va="bottom"))
+        bottom = []
+        if bond:
+            yb = y0 - 0.32
+            x_end = x0 - gap - max(1.3, max(_text_cm(s) for s in bond_label.split("\n")) * 0.9)
+            line(ax, (x0 - gap, yb), (x_end + 0.16, yb), dashed=True, color=NCI_BRACE_COLORS[0])
+            arrow(ax, (x_end + 0.17, yb), (x_end, yb), color=NCI_BRACE_COLORS[0])
+            xm = (x0 - gap + x_end) / 2
+            texts.append(label(ax, xm, yb + 0.07, r"$\rho \gg$ 0", ha="center", va="bottom"))
+            bottom.append(label(ax, xm, yb - 0.1, bond_label, ha="center", va="top"))
+        if labels:
+            yt = y0 - 0.08
+            for (fa, fb), text, col in zip(spans, labels, brace_colors):
+                xa, xb = x0 + fa * L + 0.03, x0 + fb * L - 0.03
+                _brace(ax, xa, xb, yt, 0.26, col)
+                bottom.append(label(ax, (xa + xb) / 2, yt - 0.34, text, ha="center", va="top"))
+        return fig, texts + bottom
+
+    def check(fig, texts):
+        fig.canvas.draw()
+        r = fig.canvas.get_renderer()
+        pad = 0.03 / 2.54 * fig.dpi
+        boxes = [t.get_window_extent(r) for t in texts]
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                a, b = boxes[i], boxes[j]
+                if a.x0 < b.x1 + pad and b.x0 < a.x1 + pad and a.y0 < b.y1 + pad and b.y0 < a.y1 + pad:
+                    plt.close(fig)
+                    raise ValueError(f"nci_colorbar texts run into each other ({texts[i].get_text()!r} "
+                                     f"and {texts[j].get_text()!r}); use a longer bar (length_cm), "
+                                     "shorter labels or more line breaks (\\n)")
+
+    big = 30.0
+    fig, texts = build(big, big, 10.0, 15.0)
+    check(fig, texts)
+    r = fig.canvas.get_renderer()
+    ax = fig.axes[0]
+    from matplotlib.transforms import Bbox
+    parts = [a.get_window_extent(r) for a in ax.texts + ax.patches + ax.lines + ax.images]
+    ann = [c for c in ax.get_children() if type(c).__name__ == "Annotation"]
+    parts += [c.arrow_patch.get_window_extent(r) for c in ann if c.arrow_patch is not None]
+    tb = Bbox.union(parts)
+    x_lo, x_hi, y_lo, y_hi = (v / fig.dpi * 2.54 for v in (tb.x0, tb.x1, tb.y0, tb.y1))
+    plt.close(fig)
+    m = 0.12
+    fig, _ = build(x_hi - x_lo + 2 * m, y_hi - y_lo + 2 * m, 10.0 - x_lo + m, 15.0 - y_lo + m)
     return fig
 
 
