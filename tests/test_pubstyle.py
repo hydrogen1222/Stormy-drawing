@@ -337,6 +337,29 @@ def init_figure_refuses_a_mistyped_project_path():
 
 
 @test
+def init_figure_puts_figures_in_the_chosen_root_and_finds_it_again():
+    proj = TMP / "drawroot"
+    (proj / "ESP").mkdir(parents=True)
+    r = run_py(INIT, proj, "ESP_colorbar", "--dir", "Draw")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (proj / "Draw" / "_style" / "pubstyle.py").exists()
+    assert (proj / "Draw" / "001_ESP_colorbar" / "plot.py").exists()
+    assert not (proj / "figures").exists() and list((proj / "ESP").iterdir()) == []
+    r = run_py(INIT, proj, "IRI_colorbar")                    # no --dir: Draw is found again
+    assert r.returncode == 0 and (proj / "Draw" / "002_IRI_colorbar").is_dir(), r.stdout
+    r = run_py(INIT, proj / "Draw", "IGMH_colorbar")          # the figure root itself works too
+    assert r.returncode == 0 and (proj / "Draw" / "003_IGMH_colorbar").is_dir(), r.stdout
+    assert not (proj / "Draw" / "figures").exists()
+    r = run_py(INIT, "--update-style", proj)
+    assert r.returncode == 0 and not (proj / "figures").exists(), r.stdout
+    (proj / "Other" / "_style").mkdir(parents=True)
+    r = run_py(INIT, proj, "X")
+    assert r.returncode == 2 and "--dir" in r.stdout, r.stdout
+    r = run_py(INIT, proj, "X", "--dir", "a/b")
+    assert r.returncode == 2 and not (proj / "a").exists(), r.stdout
+
+
+@test
 def init_figure_rejects_bad_names():
     proj = TMP / "names"
     proj.mkdir()

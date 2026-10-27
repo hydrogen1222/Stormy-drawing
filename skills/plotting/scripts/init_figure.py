@@ -2,8 +2,14 @@
 """Create a new figure folder inside a project, or bring the project's style
 module up to date with this skill.
 
-    python init_figure.py <project_root> <descriptive_english_name> [--plane]
-    python init_figure.py --update-style <project_root>
+    python init_figure.py <project_root> <descriptive_english_name> [--plane] [--dir NAME]
+    python init_figure.py --update-style <project_root> [--dir NAME]
+
+Figure folders live in one figure root below the project: figures/ by default.
+--dir NAME uses another folder instead (e.g. --dir Draw, created if missing). Later
+runs find it on their own: a folder of the project that already holds _style/ is the
+figure root, and so is <project_root> itself when it holds _style/. Figure folders
+always go directly into the figure root, never into a calculation folder.
 
 --plane starts the folder from the Multiwfn plane-map template (ELF or density on a
 plane, atoms on the plane marked automatically) instead of the curve template.
@@ -159,15 +165,57 @@ def project_root(arg: str) -> Path | None:
     return root
 
 
+def figure_root(root: Path, dirname: str | None) -> Path | None:
+    """The folder that holds _style/ and the numbered figure folders. Prints the reason
+    and returns None when it cannot decide."""
+    if dirname is not None:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.+-]*", dirname):
+            print("--dir must be one folder name of English letters, digits, _ . + - "
+                  "(e.g. Draw), not a path.")
+            return None
+        return root / dirname
+    if (root / "_style").is_dir():
+        return root
+    found = sorted(p for p in root.iterdir() if p.is_dir() and (p / "_style").is_dir())
+    if len(found) > 1:
+        print("More than one figure folder in this project: "
+              + ", ".join(p.name for p in found) + ". Choose one with --dir NAME.")
+        return None
+    return found[0] if found else root / "figures"
+
+
+def take_dir(argv):
+    """Remove --dir NAME from argv; returns (rest, name or None, error)."""
+    rest, name = [], None
+    it = iter(argv)
+    for a in it:
+        if a == "--dir":
+            name = next(it, None)
+            if name is None:
+                return rest, None, True
+        elif a.startswith("--dir="):
+            name = a.split("=", 1)[1]
+        else:
+            rest.append(a)
+    return rest, name, False
+
+
 def main() -> int:
-    if len(sys.argv) == 3 and sys.argv[1] == "--update-style":
-        root = project_root(sys.argv[2])
+    argv, dirname, err = take_dir(sys.argv[1:])
+    if err:
+        print("--dir needs a folder name, e.g. --dir Draw")
+        return 2
+    if len(argv) == 2 and argv[0] == "--update-style":
+        root = project_root(argv[1])
         if root is None:
             return 2
-        sync_style(root / "figures" / "_style")
+        figures = figure_root(root, dirname)
+        if figures is None:
+            return 2
+        sync_style(figures / "_style")
         return 0
-    args = [a for a in sys.argv[1:] if a != "--plane"]
-    plane = len(args) != len(sys.argv) - 1
+    args = [a for a in argv if a != "--plane"]
+    plane = len(args) != len(argv)
     if len(args) != 2:
         print(__doc__)
         return 2
@@ -180,7 +228,9 @@ def main() -> int:
         print(problem)
         return 2
 
-    figures = root / "figures"
+    figures = figure_root(root, dirname)
+    if figures is None:
+        return 2
     style = figures / "_style"
     sync_style(style)
     if not (style / "colors.json").exists():

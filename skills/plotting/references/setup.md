@@ -43,6 +43,6 @@ python -c "import matplotlib, numpy; print(matplotlib.__version__, numpy.__versi
 
 ## 3. 项目里的样式文件
 
-不需要手动做。第一次在某个项目里运行 `scripts/init_figure.py` 时，会自动建 `figures/_style/pubstyle.py` 和空的 `colors.json`。
+不需要手动做。第一次在某个项目里运行 `scripts/init_figure.py` 时，会自动建 `figures/_style/pubstyle.py` 和空的 `colors.json`（用 `--dir Draw` 时是 `Draw/_style/`，之后会自动认出）。
 
 项目里的 `figures/_style/pubstyle.py` 必须和项目里装的 skill 同一版本，否则旧副本缺少新的检查，会给出假的 PASS。更新本 skill 时：先在项目里重装 skill（`install.sh --force` 或 `install.ps1 -Force`），再运行 `python <skill>/scripts/init_figure.py --update-style <项目根目录>`，然后重画该项目的全部图。只想让某个项目保持旧样式，就不要在那个项目里重装 skill。
