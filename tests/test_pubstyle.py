@@ -834,6 +834,14 @@ def nci_colorbar_uses_vmd_bgr_and_lu_script_ranges():
     finally:
         ps.apply()
     ps.plt.close("all")
+    # every glyph comes from the style font (no Computer Modern fallback in the PDF), and
+    # the PDF text reads back correctly, so Inkscape and Illustrator import it intact
+    pdf = TMP / "nci_fonts.pdf"
+    f = pp.nci_colorbar("igmh")
+    f.savefig(pdf)
+    ps.plt.close(f)
+    raw = pdf.read_bytes()
+    assert b"Cmsy" not in raw and b"Cmr" not in raw and b"DejaVu" not in raw
     raises(ValueError, pp.nci_colorbar, "esp")
     raises(ValueError, pp.nci_colorbar, "iri", boundaries=(0.01, -0.01))
     raises(ValueError, pp.nci_colorbar, "iri", spans=((0, 0.6), (0.5, 0.8), (0.8, 1)))

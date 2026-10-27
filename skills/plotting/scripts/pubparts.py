@@ -410,7 +410,10 @@ def nci_colorbar(method: str = "iri", vmin: float | None = None, vmax: float | N
             line(ax, (x0 - gap, yb), (x_end + 0.16, yb), dashed=True, color=NCI_BRACE_COLORS[0])
             arrow(ax, (x_end + 0.17, yb), (x_end, yb), color=NCI_BRACE_COLORS[0])
             xm = (x0 - gap + x_end) / 2
-            texts.append(label(ax, xm, yb + 0.07, r"$\rho \gg$ 0", ha="center", va="bottom"))
+            # "much greater than" built from two ">" of the style font: Arial has no U+226B,
+            # and mathtext's \gg falls back to Computer Modern (thin, and its PDF text maps
+            # to the wrong character, so Inkscape garbles the label on import).
+            texts.append(label(ax, xm, yb + 0.07, r"$\rho$ $>\!\!\!\!>$ 0", ha="center", va="bottom"))
             bottom.append(label(ax, xm, yb - 0.1, bond_label, ha="center", va="top"))
         if labels:
             yt = y0 - 0.08
