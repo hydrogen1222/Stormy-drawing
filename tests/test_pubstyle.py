@@ -813,6 +813,39 @@ def colorbar_is_turbo_like_vmd_and_ignores_the_soft_mode():
 
 
 @test
+def colorbar_draws_vmd_bwr_and_rwb_with_midpoint():
+    from matplotlib.colors import to_hex
+
+    def mesh(fig):
+        return [c for c in fig.axes[0].collections if type(c).__name__ == "QuadMesh"][0]
+
+    def colors(fig, at):
+        return [to_hex(c) for c in mesh(fig).cmap(np.array(at))]
+    # BWR: pure blue at the minimum, white at the midpoint, pure red at the maximum, linear RGB between
+    assert [to_hex(c) for c in pp.VMD_BWR(np.array([0.0, 0.5, 1.0]))] == ["#0000ff", "#ffffff", "#ff0000"]
+    assert [to_hex(c) for c in pp.VMD_RWB(np.array([0.0, 0.5, 1.0]))] == ["#ff0000", "#ffffff", "#0000ff"]
+    assert [to_hex(c) for c in pp.VMD_BWR(np.array([0.25, 0.75]))] == ["#8080ff", "#ff8080"]
+    fig = pp.colorbar(-0.05, 0.05, "ESP (a.u.)", cmap="bwr")
+    assert colors(fig, [0.0, 0.5, 1.0]) == ["#0000ff", "#ffffff", "#ff0000"]
+    assert mesh(fig).cmap is pp.VMD_BWR                          # the VMD ramp, found by its VMD name
+    assert colors(pp.colorbar(0, 1, "x", cmap="vmd_rwb"), [0.0, 1.0]) == ["#ff0000", "#0000ff"]
+    assert colors(pp.colorbar(0, 1, "x", cmap="BWR", reverse=True), [0.0, 1.0]) == ["#ff0000", "#0000ff"]
+    # Midpoint slider: the white moves, the ends stay pure
+    m = pp.colorbar(0, 1, "x", cmap="bwr", midpoint=0.25)
+    assert colors(m, [0.0, 0.25, 1.0]) == ["#0000ff", "#ffffff", "#ff0000"]
+    assert colors(pp.colorbar(0, 1, "x", cmap="bgr", midpoint=0.25), [0.0, 0.25, 1.0]) == ["#0000ff", "#00ff00", "#ff0000"]
+    ps.plt.close("all")
+    try:
+        ps.apply(mode="soft")
+        assert colors(pp.colorbar(0, 1, "x", cmap="bwr"), [0.0, 1.0]) == ["#0000ff", "#ff0000"]   # never softened
+    finally:
+        ps.apply()
+    raises(ValueError, pp.colorbar, 0, 1, "x", cmap="turbo", midpoint=0.3, match="midpoint")
+    raises(ValueError, pp.colorbar, 0, 1, "x", cmap="bwr", midpoint=1.0, match="between 0 and 1")
+    raises(ValueError, pp.colorbar, 0, 1, "x", cmap="bwr", midpoint=0.0, match="between 0 and 1")
+
+
+@test
 def nci_colorbar_uses_vmd_bgr_and_lu_script_ranges():
     from matplotlib.colors import to_hex
     assert [to_hex(c) for c in pp.VMD_BGR(np.array([0.0, 0.5, 1.0]))] == ["#0000ff", "#00ff00", "#ff0000"]

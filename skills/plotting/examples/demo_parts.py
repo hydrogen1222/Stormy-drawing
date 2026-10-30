@@ -69,6 +69,7 @@ PARTS = [
     ("01_colorbar_vertical_esp", lambda: pp.colorbar(-0.05, 0.05, "ESP (a.u.)")),
     ("02_colorbar_horizontal_esp", lambda: pp.colorbar(-41, 38, "ESP (kcal/mol)", orientation="horizontal", ticks=11, decimals=0, length_cm=8)),
     ("03_colorbar_posterized_reversed", lambda: pp.colorbar(0, 1, "ELF", bands=8, reverse=True)),
+    ("03a_colorbar_bwr_esp", lambda: pp.colorbar(-0.05, 0.05, "ESP (a.u.)", cmap="bwr")),
     ("03b_nci_colorbar_iri", lambda: pp.nci_colorbar("iri")),
     ("03c_nci_colorbar_igmh", lambda: pp.nci_colorbar("igmh")),
     ("04_isosurface_legend_horizontal",

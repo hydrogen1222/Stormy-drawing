@@ -149,11 +149,19 @@
 import pubparts as pp
 def draw():
     return pp.colorbar(-0.05, 0.05, "ESP (a.u.)")     # 竖的 Turbo 色标条
+    # VMD 里 Method 选的是 BWR 时：pp.colorbar(-0.05, 0.05, "ESP (a.u.)", cmap="bwr")
 ```
+
+**色标条的参数全部来自 VMD 的设置，不许猜，画之前向用户确认这五项**：
+1. **Data Range 的 min / max**：Graphics > Representations 窗口里的 Color Scale Data Range 两个框。没有加载分子时看不到，请用户回忆当时设的范围（ESP 通常是对称的 −a 到 a，问 a 是多少）。
+2. **单位**：VMD 不记录单位，由数据来源定（Multiwfn 导出的 ESP 是 a.u.）。
+3. **Method**（Graphics > Colors > Color Scale）：Turbo 用默认的 `cmap="turbo"`；BWR（蓝白红，带正负的 ESP 常用）写 `cmap="bwr"`；RWB 写 `cmap="rwb"`；BGR 写 `cmap="bgr"`。其他 matplotlib 色标名也可以，但只有这四个和 VMD 的同名色标对得上。
+4. **Midpoint**：默认 0.50；改过就传 `midpoint=`（只对 bgr / bwr / rwb 有效）。
+5. **Offset**：不支持。VMD 里不是 0.00 时，让用户先调回 0.00 并重新出图，否则色标条和位图对不上。
 
 | 部件 | 函数 | 要点 |
 |---|---|---|
-| 色标条 | `pp.colorbar(vmin, vmax, title, orientation, length_cm, thickness_cm, ticks, decimals, bands, reverse)` | 数值范围必须和 VMD 的 Color Scale Data Range 一致（第一个值对应最左端颜色，最后一个值对应最右端，中间线性）；`bands=n` 对应 VMD 的 posterize，`reverse=True` 对应反转。**不随柔和模式变色**，必须和位图保持一致。拼图前取 VMD 图里几个像素和色标条对一下 |
+| 色标条 | `pp.colorbar(vmin, vmax, title, cmap, orientation, length_cm, thickness_cm, ticks, decimals, bands, reverse, midpoint)` | `cmap` 和 `midpoint` 见上；数值范围必须和 VMD 的 Color Scale Data Range 一致（第一个值对应最左端颜色，最后一个值对应最右端，中间线性）；`bands=n` 对应 VMD 的 posterize，`reverse=True` 对应反转。**不随柔和模式变色**，必须和位图保持一致。拼图前取 VMD 图里几个像素和色标条对一下 |
 | 弱相互作用色标条 | `pp.nci_colorbar(method, vmin, vmax, unit, labels, spans, boundaries, bond, header, length_cm)` | IRI / NCI(RDG) / IGMH 的 sign(λ₂)ρ 色标，VMD 的 BGR 配色，照卢天老师的图例画：上方 ρ、λ₂ 两行加 sign(λ₂)ρ 增减箭头，两端标数值和单位，下方三个彩色花括号写相互作用类型，蓝端外虚线箭头标 ρ≫0 的键。`iri`/`nci` 用 IRI 图例的措辞和 −0.04~0.02，`igmh` 用 IGMH 图例的措辞（含纯离子键、"有不可忽略共价性的键"）和 −0.05~0.05。见下方流程 |
 | 等值面图例 | `pp.isosurface_legend([0.002, -0.002], unit=..., title="Isovalue")` | 颜色默认正红负蓝（和 `ps.DIVERGING` 两端一致）；VMD 里用了别的颜色就把 `(值, 十六进制色)` 对传进去 |
 | 元素图例 | `pp.element_legend(["Li", "P", "S", "Cl"])` | 颜色取自登记文件（和曲线图一致，随色调模式变）；要和 VMD 原子颜色一致时用 `colors={"Li": "#..."}`，给定的色号原样使用 |
@@ -187,7 +195,7 @@ def draw():
 1. 先问用户用的是哪种方法，以及 VMD 里 Color Scale Data Range 有没有改过（Representations → Trajectory，或脚本里的 `mol scaleminmax`）。没改过就用 `method` 的默认值，改过就传 `vmin`/`vmax`。
 2. 默认横放、色标条长 9 cm，各部分的文字和花括号位置都照卢老师对应方法的图例。花括号的范围是定性划分，不是阈值；用户要改就传 `spans=((起,止),(起,止),(起,止))`（色标长度的比例），或 `boundaries=(b1, b2)`（a.u.，三段相接）。
 3. 微调：花括号文字用 `labels=(吸引, vdW, 排斥)`，`\n` 换行，`labels=None` 不画花括号；`header=False` 去掉上方 ρ/λ₂ 两行；`bond=True/False` 开关 ρ≫0 的虚线箭头，文字用 `bond_label`；`unit=""` 去掉两端单位。文字互相挤到时函数报错，按提示加长色标条或换行。
-4. 普通 `pp.colorbar` 也能画 BGR：`cmap="bgr"`。
+4. 普通 `pp.colorbar` 也能画 BGR：`cmap="bgr"`；BWR、RWB 同理（`cmap="bwr"`、`cmap="rwb"`）。
 
 - 部件的检查：字体、字号、粗体、线宽（含方框、箭头的轮廓）和画布边缘照常检查；自由排版里文字压在线上是故意的，所以不查重叠。
 - 所有线 1.0 磅、文字 6 pt（色标条标题 7 pt）、深灰 `0.15`，和其他图一致。
