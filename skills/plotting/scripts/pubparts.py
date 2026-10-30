@@ -18,7 +18,7 @@ Parts (each returns a figure; the drawing helpers at the bottom put arrows,
 dashed boxes and distance lines onto a part from new_part):
 
   colorbar            colour bar of a colour scale (default "turbo" = VMD's Turbo;
-                      cmap="bgr" = VMD's BGR)
+                      cmap="bwr" / "rwb" / "bgr" = VMD's BWR / RWB / BGR)
   nci_colorbar        sign(lambda2)rho bar for IRI / NCI / IGMH pictures, with the
                       attraction / vdW / repulsion brackets and the chemical-bond arrow
   isosurface_legend   coloured swatches with the isovalues, e.g. +0.002 / -0.002
@@ -154,26 +154,70 @@ def _vmd_bgr(midpoint: float = 0.5) -> ListedColormap:
     return ListedColormap(rgb, name="vmd_bgr")
 
 
+def _vmd_white_centred(blue_first: bool, midpoint: float = 0.5) -> ListedColormap:
+    """VMD's BWR (blue, white, red) or RWB (red, white, blue): pure end colours at the
+    minimum and maximum, white at the midpoint, linear in RGB in between (so BWR is the
+    ramp (a, a, 1) up to the midpoint and (1, 1-a, 1-a) after it)."""
+    t = np.linspace(0, 1, 257)                     # odd count: 0.5 is an exact entry
+    lo = t < midpoint
+    a = np.where(lo, t / midpoint, (t - midpoint) / (1 - midpoint))
+    one, ramp_up, ramp_down = np.ones_like(t), a, 1 - a
+    if blue_first:      # blue -> white -> red
+        rgb = np.stack([np.where(lo, ramp_up, one), np.where(lo, ramp_up, ramp_down),
+                        np.where(lo, one, ramp_down)], axis=1)
+    else:               # red -> white -> blue
+        rgb = np.stack([np.where(lo, one, ramp_down), np.where(lo, ramp_up, ramp_down),
+                        np.where(lo, ramp_up, one)], axis=1)
+    return ListedColormap(rgb, name="vmd_bwr" if blue_first else "vmd_rwb")
+
+
 VMD_BGR = _vmd_bgr()
+VMD_BWR = _vmd_white_centred(True)
+VMD_RWB = _vmd_white_centred(False)
+
+# VMD colour scales (Graphics > Colors > Color Scale > Method) that the colour bar can
+# draw by their VMD name; "vmd_" in front of the name is accepted too.
+_VMD_SCALES = {
+    "bgr": (VMD_BGR, _vmd_bgr),
+    "bwr": (VMD_BWR, lambda m: _vmd_white_centred(True, m)),
+    "rwb": (VMD_RWB, lambda m: _vmd_white_centred(False, m)),
+}
 
 
-def _cmap(cmap):
+def _cmap(cmap, midpoint: float = 0.5):
+    """Colormap for colorbar(): a Colormap object, a VMD scale name (bgr, bwr, rwb; the
+    VMD Midpoint slider is `midpoint`), or any matplotlib name (turbo, ...)."""
+    if not (math.isfinite(midpoint) and 0 < midpoint < 1):
+        raise ValueError(f"midpoint {midpoint} must be between 0 and 1 (VMD's slider range)")
     if isinstance(cmap, Colormap):
+        if midpoint != 0.5:
+            raise ValueError("midpoint only applies to the VMD scales 'bgr', 'bwr' and 'rwb'")
         return cmap
-    if str(cmap).lower() in ("bgr", "vmd_bgr"):
-        return VMD_BGR
+    key = str(cmap).lower()
+    key = key[4:] if key.startswith("vmd_") else key
+    if key in _VMD_SCALES:
+        default, make = _VMD_SCALES[key]
+        return default if midpoint == 0.5 else make(midpoint)
+    if midpoint != 0.5:
+        raise ValueError("midpoint only applies to the VMD scales 'bgr', 'bwr' and 'rwb'")
     return plt.get_cmap(cmap)
 
 
 def colorbar(vmin: float, vmax: float, title: str, cmap="turbo", orientation: str = "vertical",
              length_cm: float = 6.0, thickness_cm: float = 0.22, ticks=None,
              decimals: int | None = None, bands: int | None = None, reverse: bool = False,
-             extend: str = "neither"):
+             extend: str = "neither", midpoint: float = 0.5):
     """Colour bar for a colour scale. The default "turbo" is the scale VMD 1.9.4 calls
     Turbo (Google's table, 256 entries). Give the same vmin / vmax as the Color Scale
     Data Range in VMD: the first value is the first colour, the last value the last
     colour, in between linear. It never follows the soft colour mode: a colour bar must
     stay identical to the picture it belongs to.
+
+    cmap: "turbo" (default), the VMD scales "bwr" (blue-white-red, for ESP and other
+    signed maps), "rwb" (red-white-blue) and "bgr", or any matplotlib colormap name or
+    object. Name the scale like VMD's Method box; matplotlib's own "bwr" is the same ramp.
+    midpoint: VMD's Midpoint slider (default 0.50), only for bgr / bwr / rwb; the middle
+    colour sits there. VMD's Offset slider is not supported: keep it at 0.00 in VMD.
 
     Things to adjust (cm; all the text stays at the style's fixed sizes):
       length_cm, thickness_cm   size of the bar itself (long and thin: 6 x 0.22 by default)
@@ -198,7 +242,7 @@ def colorbar(vmin: float, vmax: float, title: str, cmap="turbo", orientation: st
         raise ValueError("thickness_cm must be between 0.05 and 2 cm")
     if decimals is not None and not (0 <= int(decimals) <= 6):
         raise ValueError("decimals must be between 0 and 6")
-    base = _cmap(cmap)
+    base = _cmap(cmap, float(midpoint))
     if bands is not None:
         if bands < 2 or bands > 64:
             raise ValueError("bands must be between 2 and 64")
