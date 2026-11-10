@@ -979,10 +979,10 @@ def init_figure_keeps_the_parts_module_in_the_style_folder():
 
 @test
 def the_skill_scripts_folder_stays_tidy():
-    """Only the three scripts live there; a stray colors.json or temp file means a
+    """Only the four scripts live there; a stray colors.json or temp file means a
     registry was created in the wrong place."""
     names = sorted(p.name for p in (SKILL / "scripts").iterdir() if p.name != "__pycache__")
-    assert names == ["init_figure.py", "pubparts.py", "pubstyle.py"], names
+    assert names == ["init_figure.py", "pubparts.py", "pubstruct.py", "pubstyle.py"], names
 
 
 # ---------------------------------------------------------------- Multiwfn plane maps
@@ -1096,6 +1096,114 @@ def plane_template_marks_atoms_on_the_plane_and_can_move_the_origin():
     plot.write_text(s.replace("ORIGIN_ATOM = None ", 'ORIGIN_ATOM = "Zz9" ', 1), encoding="utf-8")
     r = run_py(plot, cwd=folder)
     assert r.returncode != 0 and "not in data/atoms.txt" in (r.stdout + r.stderr), r.stdout + r.stderr
+
+
+# ---------------------------------------------------------------- structure figures (experimental)
+
+def _li2s_cif(path):
+    from ase.io import write
+    from ase.spacegroup import crystal
+    write(str(path), crystal(["S", "Li"], basis=[(0, 0, 0), (.25, .25, .25)], spacegroup=225,
+                             cellpar=[5.7158] * 3 + [90] * 3))
+
+
+@test
+def structure_scene_adds_boundary_images_and_bonds_by_rule_or_by_radii():
+    try:
+        import ase  # noqa: F401
+    except ImportError:
+        return                                            # ase is optional for the skill itself
+    sys.path.insert(0, str(SKILL / "scripts"))
+    import pubstruct as pst
+    cif = TMP / "Li2S_scene.cif"
+    _li2s_cif(cif)
+    col = {"Li": "#00468B", "S": "#FDAF91"}
+    s = pst.make_scene(cif, col, bonds={("Li", "S"): 2.6})
+    assert s.periodic and len(s.atoms) == 22, len(s.atoms)         # 8 Li + 14 S (corners and faces)
+    assert len(s.bonds) == 32, len(s.bonds)                         # every Li has four S neighbours
+    auto = pst.make_scene(cif, col)                                 # automatic: no Li-Li bonds in a crystal
+    syms = auto.atoms.get_chemical_symbols()
+    assert len(auto.bonds) == 32 and all(syms[i] != syms[j] for i, j in auto.bonds), auto.bonds
+    from ase import Atoms
+    water = TMP / "water.xyz"
+    from ase.io import write
+    write(str(water), Atoms("OH2", positions=[(0, 0, 0), (0.96, 0, 0), (-0.24, 0.93, 0)]))
+    m = pst.make_scene(water, {"O": "#ED0000", "H": "#AAAAAA"})
+    assert not m.periodic and len(m.bonds) == 2, m.bonds
+    c = Atoms("C2", positions=[(0, 0, 0), (1.54, 0, 0)])
+    write(str(TMP / "cc.xyz"), c)
+    assert len(pst.make_scene(TMP / "cc.xyz", {"C": "#555555"}).bonds) == 1   # same element is bonded in a molecule
+    try:
+        pst.make_scene(cif, {"Li": "#00468B"})
+        raise AssertionError("a missing element colour must be an error")
+    except ValueError as e:
+        assert "S" in str(e)
+
+
+@test
+def structure_template_names_every_picture_with_the_package_suffix():
+    try:
+        import ase  # noqa: F401
+    except ImportError:
+        return
+    proj = TMP / "struct_e2e"
+    proj.mkdir()
+    r = run_py(INIT, proj, "Li2S_cell", "--structure")
+    assert r.returncode == 0, r.stdout + r.stderr
+    folder = proj / "figures" / "001_Li2S_cell"
+    assert sorted(p.name for p in folder.iterdir()) == ["README.md", "archive", "data", "plot.py"]
+    assert (proj / "figures" / "_style" / "pubstruct.py").exists()
+    assert "__" not in (folder / "README.md").read_text(encoding="utf-8").replace("__init__", "")
+    r = run_py(folder / "plot.py", cwd=folder)
+    assert r.returncode != 0 and "data/structure.cif is missing" in (r.stdout + r.stderr), r.stdout + r.stderr
+    _li2s_cif(folder / "data" / "structure.cif")
+    plot = folder / "plot.py"
+    text = plot.read_text(encoding="utf-8")
+    text = text.replace("PACKAGES = None", "PACKAGES = (\"raycast\", \"ase\", \"rdkit\")")       # no network, no Typst
+    text = text.replace("BONDS = None", "BONDS = {(\"Li\", \"S\"): 2.6}")
+    plot.write_text(text, encoding="utf-8")
+    r = run_py(plot, cwd=folder)
+    assert r.returncode == 0, r.stdout + r.stderr
+    for mode in ("normal", "soft"):
+        out = folder / "output" / mode
+        names = sorted(p.name for p in out.iterdir())
+        stem = f"001_Li2S_cell_{mode}"
+        assert names == [f"{stem}_ase.png", f"{stem}_packages.txt", f"{stem}_raycast.png"], names
+        report = (out / f"{stem}_packages.txt").read_text(encoding="utf-8")
+        assert "EXPERIMENTAL" in report and "OK       raycast" in report and "SKIPPED  rdkit" in report, report
+    import json
+    reg = json.loads((proj / "figures" / "_style" / "colors.json").read_text(encoding="utf-8"))
+    assert set(reg["element"]) == {"Li", "S"}, reg          # colours come from the project's registry
+    from matplotlib.image import imread
+    a = imread(folder / "output" / "normal" / "001_Li2S_cell_normal_raycast.png")[..., :3]
+    b = imread(folder / "output" / "soft" / "001_Li2S_cell_soft_raycast.png")[..., :3]
+    sat = lambda im: float((im.max(-1) - im.min(-1)).mean())
+    assert sat(b) < sat(a), (sat(a), sat(b))                # soft mode is less saturated
+    r = run_py(INIT, proj, "Both", "--plane", "--structure")
+    assert r.returncode == 2 and "cannot be combined" in r.stdout, r.stdout
+
+
+@test
+def one_failing_or_missing_package_never_stops_the_others():
+    try:
+        import ase  # noqa: F401
+    except ImportError:
+        return
+    sys.path.insert(0, str(SKILL / "scripts"))
+    import pubstruct as pst
+    cif = TMP / "Li2S_report.cif"
+    _li2s_cif(cif)
+    rows = pst.render_all(cif, TMP / "struct_report", "x_normal", {"Li": "#00468B", "S": "#FDAF91"},
+                          packages=("raycast", "typed-smiles", "povray", "jmol"), px=300)
+    status = {r.tag: r.status for r in rows}
+    assert status["raycast"] == "OK" and status["typed-smiles"] == "SKIPPED", status
+    assert all(s in {"OK", "SKIPPED"} for s in status.values()), status
+    assert (TMP / "struct_report" / "x_normal_raycast.png").exists()
+    try:
+        pst.render_all(cif, TMP / "struct_report", "y", {"Li": "#00468B", "S": "#FDAF91"}, packages=("nope",))
+        raise AssertionError("an unknown package name must be an error")
+    except ValueError as e:
+        assert "nope" in str(e)
 
 
 # ---------------------------------------------------------------- no personal leftovers

@@ -2,7 +2,7 @@
 """Create a new figure folder inside a project, or bring the project's style
 module up to date with this skill.
 
-    python init_figure.py <project_root> <descriptive_english_name> [--plane] [--dir NAME]
+    python init_figure.py <project_root> <descriptive_english_name> [--plane | --structure] [--dir NAME]
     python init_figure.py --update-style <project_root> [--dir NAME]
 
 Figure folders live in one figure root below the project: figures/ by default.
@@ -13,6 +13,11 @@ always go directly into the figure root, never into a calculation folder.
 
 --plane starts the folder from the Multiwfn plane-map template (ELF or density on a
 plane, atoms on the plane marked automatically) instead of the curve template.
+
+--structure (EXPERIMENTAL) starts the folder from the structure-figure template: plot.py draws
+one crystal or molecule with every drawing package that is installed (numpy ray-caster, ASE,
+POV-Ray, OVITO, Jmol, Typst materia / typed-smiles, RDKit), each file named with the package
+as suffix, so the user can compare them and pick one. Needs ase (and optionally the others).
 
 Example:
     python init_figure.py ~/projects/Li6PS5Cl_doping Li6PS5Cl_bulk_DOS
@@ -83,9 +88,10 @@ def sync_palette(style: Path, src: Path) -> None:
 
 
 def sync_style(style: Path) -> None:
-    """Create or update figures/_style/ (pubstyle.py and pubparts.py) from this skill."""
+    """Create or update figures/_style/ (pubstyle.py, pubparts.py, pubstruct.py) from this skill."""
     sync_pubstyle(style)
     sync_aux(style, "pubparts.py")
+    sync_aux(style, "pubstruct.py")
 
 
 def sync_aux(style: Path, name: str) -> None:
@@ -214,8 +220,11 @@ def main() -> int:
             return 2
         sync_style(figures / "_style")
         return 0
-    args = [a for a in argv if a != "--plane"]
-    plane = len(args) != len(argv)
+    args = [a for a in argv if a not in ("--plane", "--structure")]
+    plane, structure = "--plane" in argv, "--structure" in argv
+    if plane and structure:
+        print("--plane and --structure cannot be combined; make one figure folder for each.")
+        return 2
     if len(args) != 2:
         print(__doc__)
         return 2
@@ -243,13 +252,16 @@ def main() -> int:
     folder.mkdir()
     (folder / "data").mkdir()
     (folder / "archive").mkdir()
-    kind = "_plane" if plane else ""
+    kind = "_plane" if plane else "_structure" if structure else ""
     for src, dst in ((f"plot{kind}_template.py", "plot.py"), (f"README{kind}_template.md", "README.md")):
         text = (SKILL / "templates" / src).read_text(encoding="utf-8")
         (folder / dst).write_text(text.replace("__FIGURE_NAME__", folder.name), encoding="utf-8")
     print(f"created {folder}/ (plot.py, README.md, data/, archive/; output/ appears on the first run)")
     if plane:
         print("next: copy plane.txt and atoms.txt into data/, fill README.md, run plot.py")
+    elif structure:
+        print("next (EXPERIMENTAL): copy the structure file (CONTCAR, CIF, xyz) into data/ or set SMILES in "
+              "plot.py, fill README.md, run plot.py; it draws with every installed package")
     else:
         print("next: copy the data file into data/, fill README.md, edit plot.py, run it")
     return 0
