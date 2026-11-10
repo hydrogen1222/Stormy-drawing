@@ -19,11 +19,12 @@ skills/plotting/
   SKILL.md                    skill 正文（中文）：目录结构、画图和重画的步骤、全部样式规则、自查清单
   scripts/pubstyle.py         样式模块：样式、三种固定画布、坐标轴取整、图例避让、颜色登记、检查和保存
   scripts/pubparts.py         拼图用的矢量部件：Turbo 色标条、等值面/元素图例、坐标轴三角、比例尺、区域条、能级图、放大小图框、箭头和虚线框
-  scripts/init_figure.py      在项目里新建一个图文件夹；--update-style 同步项目的样式文件
+  scripts/pubstruct.py        结构图模块（实验性）：同一个晶体或分子用所有装了的绘图包各画一遍，文件名以包名结尾，供挑选
+  scripts/init_figure.py      在项目里新建一个图文件夹（--plane 平面图、--structure 结构图）；--update-style 同步项目的样式文件
   templates/                  plot.py 和 README.md 模板
   references/figure-types.md  态密度、能带、能垒、径向分布函数、均方位移、阿伦尼乌斯图、二维色图、柱状图的约定
   references/setup.md         安装 Arial 字体和 Python 环境
-  references/structures.md    晶体结构图（OVITO；VESTA 做法待实测）
+  references/structures.md    晶体结构图（OVITO；VESTA 做法待实测；--structure 各包对比的说明和状态）
   examples/demo_all_types.py  用假数据画出全部图型，也用来自测
   examples/demo_parts.py      画出全部拼图部件的示例
 install.sh                    安装脚本（Linux、macOS）
@@ -103,4 +104,4 @@ powershell -ExecutionPolicy Bypass -File tests\smoke_test.ps1
 
 本仓库使用 MIT 许可证，见 `LICENSE`。引用信息见 `CITATION.cff`。
 
-这里的规矩是 Stormy 和 Claude 在 2026 年 10 月逐条讨论定下的；skill 里标为"待实测"的部分（VESTA 相关做法）还没有在真实数据上验证。
+这里的规矩是 Stormy 和 Claude 在 2026 年 10 月逐条讨论定下的；skill 里标为"待实测"的部分（VESTA 相关做法）还没有在真实数据上验证；`--structure` 结构图是实验性功能，povray、ovito、jmol 三个包没在真机上跑过，`references/structures.md` 里有各包的状态。
