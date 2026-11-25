@@ -41,6 +41,8 @@ python -c "import matplotlib, pathlib; [p.unlink() for p in pathlib.Path(matplot
 python -c "import matplotlib, numpy; print(matplotlib.__version__, numpy.__version__)"
 ```
 
+画流程图（`--diagram`）还要 Python 包 `typst`（`pip install typst`；`uv run plot.py` 会自动装）。第一次编译会联网下载 Typst 包 fletcher，之后用本机缓存。
+
 ## 3. 项目里的样式文件
 
 不需要手动做。第一次在某个项目里运行 `scripts/init_figure.py` 时，会自动建 `figures/_style/pubstyle.py` 和空的 `colors.json`（用 `--dir Draw` 时是 `Draw/_style/`，之后会自动认出）。

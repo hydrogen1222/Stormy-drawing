@@ -79,9 +79,25 @@ python3 "$P/.agents/skills/plotting/examples/demo_parts.py" "$TMP/demo_parts" > 
   || { cat "$TMP/demo_parts.log"; fail "demo_parts"; }
 grep -q "FAIL" "$TMP/demo_parts.log" && { cat "$TMP/demo_parts.log"; fail "a demo part failed its checks"; }
 for mode in normal soft; do
-  [ "$(find "$TMP/demo_parts/$mode" -name '*.pdf' | wc -l)" -eq 12 ] || fail "expected 12 $mode parts"
+  # one PDF in every part folder (the number of parts grows as parts are added)
+  nparts=$(find "$TMP/demo_parts/$mode" -mindepth 1 -maxdepth 1 -type d | wc -l)
+  [ "$nparts" -ge 15 ] && [ "$(find "$TMP/demo_parts/$mode" -name '*.pdf' | wc -l)" -eq "$nparts" ] \
+    || fail "expected one PDF in each of the $mode part folders (at least 15)"
 done
-ok "init_figure, eleven demo figures and twelve demo parts in both colour modes"
+[ ! -e "$P/.agents/skills/plotting/scripts/colors.json" ] || fail "a demo wrote colors.json into the skill"
+ok "init_figure, eleven demo figures and every demo part in both colour modes"
+
+# 7b. diagrams (Typst + fletcher), when the typst package is installed
+if python3 -c "import typst" 2>/dev/null; then
+  python3 "$P/.agents/skills/plotting/scripts/init_figure.py" "$P" Test_diagram --diagram >/dev/null \
+    && [ -f "$P/figures/002_Test_diagram/diagram.typ" ] || fail "init_figure --diagram"
+  python3 "$P/.agents/skills/plotting/examples/demo_diagrams.py" "$TMP/demo_dia" > "$TMP/demo_dia.log" 2>&1 \
+    || { cat "$TMP/demo_dia.log"; fail "demo_diagrams"; }
+  [ "$(find "$TMP/demo_dia/diagrams" -path '*/output/*.png' | wc -l)" -eq 6 ] || fail "expected 3 diagrams x 2 modes"
+  ok "init_figure --diagram and the three example diagrams"
+else
+  printf 'SKIP: diagrams (pip install typst to test them)\n'
+fi
 
 # 8. an outdated project style copy is replaced and archived
 printf '# old copy without STYLE_VERSION\n' > "$P/figures/_style/pubstyle.py"

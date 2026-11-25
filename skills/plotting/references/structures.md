@@ -39,7 +39,7 @@ VESTA 安装目录里的 `elements.ini` 存着每种元素的默认颜色和半�
 
 ## 同一个结构画给用户挑（实验性，`init_figure.py ... --structure`）
 
-用户没指定软件，或想看哪个包好看时，用这一做法。`plot.py` 调 `figures/_style/pubstruct.py`，把同一个结构用所有能用的包各画一遍，normal 和 soft 两种色调各一套。图文件名 `<文件夹名>_<模式>_<包名>.png`，包名就是后缀，互不覆盖；`_packages.txt` 逐个写明 OK、SKIPPED（原因）或 FAILED（原因）。一个包跑不了不影响其他包。
+用户没指定软件，或想看哪个包好看时，用这一做法。`plot.py` 调 `figures/_style/pubstruct.py`，把同一个结构用所有能用的包各画一遍，normal 和 soft 两种色调各一套。**每种色调只需看一张总览图** `output/<文件夹名>_<模式>_compare.png`：各包的图并排，下面写着包名（也复制进 `figures/_preview/`）。单张图在 `output/packages/`，文件名 `<文件夹名>_<模式>_<包名>.png`，包名就是后缀，互不覆盖；`output/<文件夹名>_<模式>_packages.txt` 逐个写明 OK、SKIPPED（原因）或 FAILED（原因）。一个包跑不了不影响其他包。用户选定一个包（`PACKAGES = ("raycast",)`）后，它的图直接放在 `output/`，不再有总览图和 `packages/`。
 
 | 包名后缀 | 是什么 | 画什么 | 需要什么 | 状态 |
 |---|---|---|---|---|
