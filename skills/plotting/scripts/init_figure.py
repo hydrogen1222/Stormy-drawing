@@ -2,7 +2,7 @@
 """Create a new figure folder inside a project, or bring the project's style
 module up to date with this skill.
 
-    python init_figure.py <project_root> <descriptive_english_name> [--plane | --structure] [--dir NAME]
+    python init_figure.py <project_root> <descriptive_english_name> [--plane | --structure | --diagram] [--dir NAME]
     python init_figure.py --update-style <project_root> [--dir NAME]
 
 Figure folders live in one figure root below the project: figures/ by default.
@@ -19,15 +19,19 @@ one crystal or molecule with every drawing package that is installed (numpy ray-
 POV-Ray, OVITO, Jmol, Typst materia / typed-smiles, RDKit), each file named with the package
 as suffix, so the user can compare them and pick one. Needs ase (and optionally the others).
 
+--diagram starts the folder from the diagram template (flowchart, calculation workflow, ML or CS
+architecture): the drawing is diagram.typ (Typst + fletcher, style _style/stormy.typ) and
+plot.py compiles and checks it. Needs the Python package typst. Diagram folders have no data/.
+
 Example:
     python init_figure.py ~/projects/Li6PS5Cl_doping Li6PS5Cl_bulk_DOS
     -> figures/004_Li6PS5Cl_bulk_DOS/ with README.md, plot.py, data/, archive/
-       (the first run of plot.py adds output/normal/ and output/soft/)
+       (the first run of plot.py adds output/; figures without FAIL also land in figures/_preview/)
 
 The project root must already exist (a mistyped path is an error, not a new
 folder tree). On first use it also creates figures/_style/ with this project's copy of
-pubstyle.py and pubparts.py (vector parts for image-editor layouts) and an empty
-color registry colors.json. Both commands also check
+pubstyle.py, pubparts.py (vector parts for image-editor layouts), pubstruct.py (structure
+figures), pubdiagram.py and stormy.typ (diagrams) and an empty color registry colors.json. Both commands also check
 that copy: if it is older than this skill's pubstyle.py (or has no version at
 all), the old copy moves to figures/_style/archive/ and the new one replaces
 it; figures drawn with the old copy must then be redrawn. colors.json is left
@@ -88,10 +92,14 @@ def sync_palette(style: Path, src: Path) -> None:
 
 
 def sync_style(style: Path) -> None:
-    """Create or update figures/_style/ (pubstyle.py, pubparts.py, pubstruct.py) from this skill."""
+    """Create or update figures/_style/ (pubstyle.py and its helpers) from this skill."""
     sync_pubstyle(style)
-    sync_aux(style, "pubparts.py")
-    sync_aux(style, "pubstruct.py")
+    for helper in AUX:
+        sync_aux(style, helper)
+
+
+# helper files kept identical to this skill's copies in every project's _style/
+AUX = ("pubparts.py", "pubstruct.py", "pubdiagram.py", "stormy.typ")
 
 
 def sync_aux(style: Path, name: str) -> None:
@@ -104,10 +112,10 @@ def sync_aux(style: Path, name: str) -> None:
     elif dst.read_bytes() != src.read_bytes():
         archive = style / "archive"
         archive.mkdir(exist_ok=True)
-        stem = f"{Path(name).stem}_{datetime.date.today()}"
-        keep, n = archive / f"{stem}.py", 2
+        stem, ext = f"{Path(name).stem}_{datetime.date.today()}", Path(name).suffix
+        keep, n = archive / f"{stem}{ext}", 2
         while keep.exists():
-            keep = archive / f"{stem}_{n}.py"
+            keep = archive / f"{stem}_{n}{ext}"
             n += 1
         shutil.move(str(dst), str(keep))
         shutil.copy2(src, dst)
@@ -140,7 +148,7 @@ def sync_pubstyle(style: Path) -> None:
         sync_palette(style, src)
         print(f"UPDATED {dst}: {v(old)} -> {v(new)} (old copy: {keep})")
         print("Figures drawn with the old style must be redrawn: run plot.py in each "
-              "figure folder and check the new output/*/*_checks.txt.")
+              "figure folder and check the new output/checks.txt.")
 
 
 # names Windows refuses as folder names, whatever the extension
@@ -220,11 +228,12 @@ def main() -> int:
             return 2
         sync_style(figures / "_style")
         return 0
-    args = [a for a in argv if a not in ("--plane", "--structure")]
-    plane, structure = "--plane" in argv, "--structure" in argv
-    if plane and structure:
-        print("--plane and --structure cannot be combined; make one figure folder for each.")
+    kinds = [k for k in ("--plane", "--structure", "--diagram") if k in argv]
+    args = [a for a in argv if a not in ("--plane", "--structure", "--diagram")]
+    if len(kinds) > 1:
+        print(" and ".join(kinds) + " cannot be combined; make one figure folder for each.")
         return 2
+    plane, structure, diagram = ("--plane" in kinds, "--structure" in kinds, "--diagram" in kinds)
     if len(args) != 2:
         print(__doc__)
         return 2
@@ -250,14 +259,21 @@ def main() -> int:
                if p.is_dir() and re.match(r"\d{3}_", p.name)]
     folder = figures / f"{(max(numbers) + 1 if numbers else 1):03d}_{name}"
     folder.mkdir()
-    (folder / "data").mkdir()
     (folder / "archive").mkdir()
-    kind = "_plane" if plane else "_structure" if structure else ""
-    for src, dst in ((f"plot{kind}_template.py", "plot.py"), (f"README{kind}_template.md", "README.md")):
+    kind = "_plane" if plane else "_structure" if structure else "_diagram" if diagram else ""
+    files = [(f"plot{kind}_template.py", "plot.py"), (f"README{kind}_template.md", "README.md")]
+    if diagram:
+        files.append(("diagram_template.typ", "diagram.typ"))   # the drawing; a diagram has no data
+    else:
+        (folder / "data").mkdir()
+    for src, dst in files:
         text = (SKILL / "templates" / src).read_text(encoding="utf-8")
         (folder / dst).write_text(text.replace("__FIGURE_NAME__", folder.name), encoding="utf-8")
-    print(f"created {folder}/ (plot.py, README.md, data/, archive/; output/ appears on the first run)")
-    if plane:
+    made = ", ".join(dst for _, dst in files) + (", archive/" if diagram else ", data/, archive/")
+    print(f"created {folder}/ ({made}; output/ appears on the first run)")
+    if diagram:
+        print("next: draw in diagram.typ (helpers: references/diagrams.md), fill README.md, run plot.py")
+    elif plane:
         print("next: copy plane.txt and atoms.txt into data/, fill README.md, run plot.py")
     elif structure:
         print("next (EXPERIMENTAL): copy the structure file (CONTCAR, CIF, xyz) into data/ or set SMILES in "
