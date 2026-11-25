@@ -8,9 +8,12 @@
 EXPERIMENTAL structure figure: draws one crystal or molecule with every drawing package that
 is installed, so the user can compare the pictures and choose. Run in this folder:
     uv run plot.py     (or: python plot.py)
-Every picture is output/<mode>/<folder>_<mode>_<package>.png (materia, typed-smiles, rdkit also
-.svg; typst ones also .pdf); <folder>_<mode>_packages.txt says which packages ran, which were
-skipped and why. Package list and what each one needs: figures/_style/pubstruct.py (top).
+Look at ONE file per mode: output/<folder>_<mode>_compare.png puts every package side by side
+(also copied to figures/_preview/). The single pictures are in output/packages/
+(<folder>_<mode>_<package>.png; materia, typed-smiles, rdkit also .svg, typst ones also .pdf);
+output/<folder>_<mode>_packages.txt says which packages ran, which were skipped and why.
+Once one package is chosen (PACKAGES below), its pictures go straight into output/.
+Package list and what each one needs: figures/_style/pubstruct.py (top).
 Structure file or SMILES, source and settings: README.md.
 """
 import sys
@@ -42,13 +45,19 @@ if path is None and not (SMILES or molfile):
     sys.exit("give STRUCTURE_FILE, SMILES or MOLFILE at the top of plot.py.")
 
 elements = pst.elements_of(path, SMILES, molfile)
+out = ps.prepare_output(HERE, HERE.name)          # clears this figure's old output files
+shown = []
 try:
     for mode in MODES:
         ps.apply(mode=mode)                       # sets the colour mode that reg.color() uses
         reg = ps.ColorRegistry()                  # element colours are the project's fixed ones
         colors = {el: reg.color(el) for el in elements}
-        pst.render_all(path, HERE / "output" / mode, f"{HERE.name}_{mode}", colors,
-                       smiles=SMILES, molfile=molfile, radii=RADII, bonds=BONDS,
-                       supercell=SUPERCELL, view=VIEW, packages=PACKAGES)
+        rows = pst.render_all(path, out, f"{HERE.name}_{mode}", colors,
+                              smiles=SMILES, molfile=molfile, radii=RADII, bonds=BONDS,
+                              supercell=SUPERCELL, view=VIEW, packages=PACKAGES)
+        sheet = out / f"{HERE.name}_{mode}_compare.png"
+        shown += [sheet] if sheet.exists() else [out / f for r in rows if r.status == "OK"
+                                                 for f in r.files if f.endswith(".png")]
 finally:
     ps.apply(mode="normal")
+ps.publish_preview(HERE, shown)                   # figures/_preview/: the overview (or chosen picture)

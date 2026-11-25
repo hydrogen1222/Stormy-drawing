@@ -33,11 +33,11 @@
 - 画布：standard（8 cm × 6 cm）/ tall / strip
 - 坐标范围及理由：
 - 颜色：来自 `figures/_style/colors.json`
-- 色调模式：normal 和 soft 两份都在 `output/` 里；用户选用：（待用户选定后填 normal 或 soft，并把 `plot.py` 里的 `MODES` 改成只画选定的那一个）
+- 色调模式：normal 和 soft 两份都在 `output/` 里；用户选用：（待用户选定后填 normal 或 soft，并把 `plot.py` 里的 `MODES` 改成只画选定的那一个，重画时另一份自动删掉）
 
 ## 自查结果
 
-（把 `output/normal/__FIGURE_NAME___normal_checks.txt` 和 `output/soft/__FIGURE_NAME___soft_checks.txt` 的内容贴在这里，再写一句 agent 亲眼看两份图后的结论。）
+（一两句话：自动检查（`output/checks.txt`）有没有 FAIL、怎么修的；agent 亲眼看图后的结论。不要整段贴检查结果。）
 
 ## 修改记录
 

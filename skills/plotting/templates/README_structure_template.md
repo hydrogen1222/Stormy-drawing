@@ -26,7 +26,7 @@
 
 ## 各个包的比较（实验性）
 
-`output/<模式>/<文件夹名>_<模式>_packages.txt` 列出每个包跑了没有、为什么跳过。各包文件名以包名结尾：`_raycast`、`_ase`、`_povray`、`_ovito`、`_jmol`、`_materia`、`_rdkit`、`_typed-smiles`。
+先看总览图 `output/<文件夹名>_<模式>_compare.png`（各包并排，下面写着包名；也复制在 `figures/_preview/`），一张图就能比较。单张图在 `output/packages/`，文件名以包名结尾：`_raycast`、`_ase`、`_povray`、`_ovito`、`_jmol`、`_materia`、`_rdkit`、`_typed-smiles`。`output/<文件夹名>_<模式>_packages.txt` 列出每个包跑了没有、为什么跳过。
 
 | 包 | 是否出图 | 看起来怎么样（agent 看图后写） | 用户选用 |
 |---|---|---|---|
@@ -39,11 +39,11 @@
 | rdkit |  |  |  |
 | typed-smiles |  |  |  |
 
-用户选定后：把 `plot.py` 里的 `PACKAGES` 改成只含选定的那个，`MODES` 改成选定的模式，删掉 `output/` 里其余的文件（随时可重画），在上表"用户选用"里写明。
+用户选定后：把 `plot.py` 里的 `PACKAGES` 改成只含选定的那个，`MODES` 改成选定的模式，重新运行（旧的图自动清掉，选定包的图直接放在 `output/`，不再有总览图和 `packages/`），在上表"用户选用"里写明。
 
 ## 自查结果
 
-（贴上两份 `_packages.txt` 的内容，再写一句亲眼看图后的结论：原子颜色是否和其他图一致、键和晶胞是否对、有没有原子被挡住。）
+（一两句话：哪些包没跑成（见 `_packages.txt`）；亲眼看图后的结论：原子颜色是否和其他图一致、键和晶胞是否对、有没有原子被挡住。）
 
 ## 修改记录
 
