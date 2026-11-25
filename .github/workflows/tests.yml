@@ -1,0 +1,43 @@
+name: tests
+
+# Runs the smoke tests (install scripts, every demo figure, part and diagram, and
+# tests/test_pubstyle.py) on every push and pull request.
+#   Linux:   no Arial on the runner, so the draft stand-in font (Liberation Sans) is used.
+#   Windows: real Arial; also the only place install.ps1 and smoke_test.ps1 are exercised.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fonts and Python packages
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q fonts-liberation
+          python -m pip install --upgrade pip
+          python -m pip install "matplotlib>=3.8" numpy pillow fonttools ase typst
+      - name: Smoke test
+        env:
+          PUBSTYLE_ALLOW_STANDIN: "1"
+        run: sh tests/smoke_test.sh
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python packages
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "matplotlib>=3.8" numpy pillow fonttools ase typst
+      - name: Smoke test
+        shell: pwsh
+        run: ./tests/smoke_test.ps1
