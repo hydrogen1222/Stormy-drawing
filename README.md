@@ -2,7 +2,7 @@
 
 给 AI agent 用的科研绘图 skill。让 Claude Code、Codex、Qwen Code、Kimi、pi、opencode、Antigravity（agy）等 agent 画出 Origin 风格、可以直接投稿的图和流程图，并且每张图都能随时重画。Linux、macOS、Windows 都能用。
 
-作者：**Stormy**（[@hydrogen1222](https://github.com/hydrogen1222)）与 **Claude**（Anthropic）。
+作者：**Storm**（[@hydrogen1222](https://github.com/hydrogen1222)）与 **Claude**（Anthropic）。
 
 > English summary: a skill that teaches AI coding agents to make publication-quality matplotlib figures in one fixed, Origin-like style (bold Arial, outward major and minor ticks, closed frame), plus flowcharts and architecture diagrams in the same style (Typst + fletcher), and to keep every figure reproducible: one folder per figure holding the copied data, the `plot.py` that draws it, and a README recipe; every finished figure is also gathered in one `_preview/` folder. Built for computational materials science (DOS, band structures, NEB barriers, RDF, MSD, Arrhenius plots, 2D maps) and ML/CS workflow diagrams, usable for any line plot. Install with `install.sh` (Linux, macOS) or `install.ps1` (Windows), see below.
 
