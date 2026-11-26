@@ -7,12 +7,16 @@ gets its own copy next to pubstyle.py (figures/_style/pubstruct.py). Needs ase a
 every other package is optional and is skipped, with the reason, when it is missing.
 
     import pubstruct as pst
-    rows = pst.render_all("data/structure.cif", out_dir, "003_Li2S_cell_normal",
+    rows = pst.render_all("data/structure.cif", "output", "003_Li2S_cell_normal",
                           colors={"Li": "#00468B", "S": "#FDAF91"})
 
 Every picture is written as  <name>_<package>.<ext>  (the package name is the suffix, so
-pictures of the same structure never overwrite each other), plus <name>_packages.txt
-that lists for each package: OK / SKIPPED (why) / FAILED (why), and its version.
+pictures of the same structure never overwrite each other). When several packages are
+drawn, the pictures go to <out_dir>/packages/ and ONE labelled overview,
+<out_dir>/<name>_compare.png, puts them side by side: the user looks at that one file to
+choose. <out_dir>/<name>_packages.txt lists for each package: OK / SKIPPED (why) /
+FAILED (why), and its version. Once a single package is chosen, its pictures go
+straight into <out_dir>.
 
 Packages (tag = file suffix):
   raycast       own numpy ray-caster, orthographic, nothing to install       crystal, molecule
@@ -41,7 +45,7 @@ from pathlib import Path
 
 import numpy as np
 
-STRUCT_VERSION = "0.1.0"
+STRUCT_VERSION = "0.2.0"   # 0.2.0: packages/ subfolder and one _compare.png overview
 
 ALL_PACKAGES = ("raycast", "ase", "povray", "ovito", "jmol", "materia", "rdkit", "typed-smiles")
 WIDTH_CM = 8.0            # same width as the standard canvas of pubstyle
@@ -597,6 +601,33 @@ RENDERERS = {"raycast": _r_raycast, "ase": _r_ase, "povray": _r_povray, "ovito":
              "jmol": _r_jmol, "materia": _r_materia, "rdkit": _r_rdkit, "typed-smiles": _r_typed_smiles}
 
 
+# ------------------------------------------------------------------ overview
+
+def compare_sheet(pictures, path, ncols: int = 4, cell_cm: float = 6.0) -> Path:
+    """One PNG with every picture side by side and the package name under each, so the
+    user compares packages in a single file. pictures = [(label, png path), ...]."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.image import imread
+    pictures = list(pictures)
+    n = len(pictures)
+    ncols = max(1, min(ncols, n))
+    nrows = math.ceil(n / ncols)
+    cm = 1 / 2.54
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * cell_cm * cm, nrows * (cell_cm + 0.6) * cm),
+                             squeeze=False)
+    for ax in axes.flat:
+        ax.axis("off")
+    for ax, (label, png) in zip(axes.flat, pictures):
+        ax.imshow(imread(png))
+        ax.set_title(label, y=-0.08, fontsize=8, fontweight="bold", va="top")
+    fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.06, wspace=0.04, hspace=0.12)
+    fig.savefig(path, dpi=200, facecolor="white")
+    plt.close(fig)
+    return Path(path)
+
+
 # ------------------------------------------------------------------ driver
 
 def render_all(path, out_dir, name, colors, *, smiles=None, molfile=None, radii=None, bonds=None,
@@ -604,19 +635,26 @@ def render_all(path, out_dir, name, colors, *, smiles=None, molfile=None, radii=
     """Draw the structure with every package in `packages` (default: all) that can run.
 
     path        structure file (CIF, POSCAR/CONTCAR, xyz, ...) or None when smiles/molfile is given
-    out_dir     output folder, e.g. <figure folder>/output/normal
+    out_dir     output folder, e.g. <figure folder>/output
     name        file stem, e.g. "003_Li2S_cell_normal"; the package name is appended
     colors      {element: "#RRGGBB"} from the project's color registry (reg.color(el))
     bonds       {("Li", "S"): 2.6} cutoffs in Å per element pair; None = automatic
-    Returns one Row per package and writes <name>_packages.txt next to the pictures."""
+    Returns one Row per package; writes <name>_packages.txt and, when two or more pictures
+    were made, <name>_compare.png into out_dir (the pictures themselves into out_dir/packages/)."""
     out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stem = out_dir / name
+    tags = tuple(packages or ALL_PACKAGES)
+    pic_dir = out_dir / "packages" if len(tags) > 1 else out_dir
+    pic_dir.mkdir(parents=True, exist_ok=True)
+    for d in {out_dir, pic_dir}:                      # pictures of an earlier run of this name
+        for f in d.iterdir():
+            if f.is_file() and f.name.startswith(name + "_"):
+                f.unlink()
+    stem = pic_dir / name
     s = make_scene(path, colors, smiles=smiles, molfile=molfile, radii=radii, bonds=bonds,
                    supercell=supercell, view=view, px=px)
     kind = "crystal" if s.periodic else "molecule"
     rows = []
-    for tag in (packages or ALL_PACKAGES):
+    for tag in tags:
         if tag not in RENDERERS:
             raise ValueError(f"unknown package {tag!r}; choose from {ALL_PACKAGES}")
         try:
@@ -633,7 +671,14 @@ def render_all(path, out_dir, name, colors, *, smiles=None, molfile=None, radii=
     for r in rows:
         extra = f"  [{r.version}]" if r.version else ""
         lines.append(f"{r.status:8s} {r.tag:13s} {', '.join(r.files) if r.files else r.note}{extra}")
+    pngs = [(r.tag, pic_dir / f) for r in rows if r.status == "OK" for f in r.files if f.endswith(".png")]
+    if len(tags) > 1 and len(pngs) >= 2:
+        sheet = out_dir / f"{name}_compare.png"
+        compare_sheet(pngs, sheet)
+        lines.append(f"overview: {sheet.name} (all pictures side by side, package name under each)")
     (out_dir / f"{name}_packages.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if pic_dir != out_dir and not any(pic_dir.iterdir()):
+        pic_dir.rmdir()
     print(f"[{name}]")
     for ln in lines:
         print("  " + ln)

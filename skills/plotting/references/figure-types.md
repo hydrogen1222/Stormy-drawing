@@ -16,7 +16,7 @@
       ps.place_legend(ax)                    # 按轨道：kind={"S": ["p"], "P": ["s", "p"]}
       return fig
 
-  ps.save_modes(draw, HERE.name, HERE)       # 写进 output/normal/ 和 output/soft/
+  ps.save_modes(draw, HERE.name, HERE)       # 写进 output/（normal、soft 各一份 PNG + PDF）
   open(HERE / "README.md", "a").write(ps.dos_summary(d))   # 只在第一次画时追加，别重复追加
   ```
   把 `DOSCAR`、`POSCAR`、`EIGENVAL` 复制进图文件夹的 `data/`。缺 `EIGENVAL` 时 `read_dos` 会报错（没有它分不出绝缘体和金属，也没有带隙）；确知是金属时才用 `assume_metal=True`。`formula_units`（晶胞里有几个化学式单元）**必须自己给**，函数不猜；写进 README。零点：绝缘体取 EIGENVAL 里所有 k 点的价带顶，金属取 DOSCAR 里的费米能级。带隙取自 EIGENVAL，不取态密度边缘。占据带数取自 EIGENVAL 的占据数列，不是 NELECT/2（自旋轨道耦合时每条带只放一个电子，NELECT/2 会少算一半）；电子数为奇数而 ISPIN=1 时程序报错，不会当成绝缘体。元素/轨道曲线是投影到各原子周围球内的结果，加起来不等于总态密度，README 里写明。
@@ -30,7 +30,7 @@
 - **能量范围**不写死，按规则定：下限放在最靠近价带顶那一组价带的底部再往下一点，上限约为导带底以上 3 eV，两头取整数。README 写一句理由。
 - **带隙**默认用双向箭头标出：`ps.gap_arrow(ax, 0.0, e_cbm, y=箭头高度)`，数值两位小数。
 - **展宽**：只用 VASP 计算时的展宽（ISMEAR/SIGMA），画图时不额外平滑。确实要加，展宽宽度写进 README。
-- **自旋极化**：自旋向上画正值、向下画负值，同一元素同一颜色，纵轴对称；README 注明"向下为负是画图约定"。
+- **自旋极化**（`read_dos` 现在还不支持 ISPIN=2，见上；以后支持时按这个约定）：自旋向上画正值、向下画负值，同一元素同一颜色，纵轴对称；README 注明"向下为负是画图约定"。
 - 零点画参考虚线：`ax.axvline(0, **ps.REFERENCE_LINE)`。
 
 ## 能带

@@ -24,6 +24,9 @@ import pubstyle as ps  # noqa: E402
 import pubparts as pp  # noqa: E402
 
 root = Path(sys.argv[1] if len(sys.argv) > 1 else "demo_parts_output")
+# a throw-away colour registry: without it the parts would write colors.json next to
+# pubstyle.py, i.e. into the skill's own scripts folder
+REG = Path(tempfile.mkdtemp()) / "colors.json"
 
 
 def view_matrix():
@@ -62,7 +65,7 @@ def levels():
     return pp.level_diagram(
         [{"name": "Host", "levels": [(-6.1, "HOMO"), (-2.3, "LUMO")], "color": "Host"},
          {"name": "Doped", "levels": [(-5.4, "HOMO"), (-3.0, "Gap state"), (-2.2, "LUMO")]}],
-        links=[(0, 0, 1, 0), (0, 1, 1, 2)])
+        links=[(0, 0, 1, 0), (0, 1, 1, 2)], reg=ps.ColorRegistry(REG))
 
 
 PARTS = [
@@ -75,7 +78,7 @@ PARTS = [
     ("04_isosurface_legend_horizontal",
      lambda: pp.isosurface_legend([0.002, -0.002], unit=r"e $\rm\AA^{\rm -3}$", title="Isovalue")),
     ("05_isosurface_legend_vertical", lambda: pp.isosurface_legend([0.02, -0.02], orientation="vertical")),
-    ("06_element_legend", lambda: pp.element_legend(["Li", "P", "S", "Cl"])),
+    ("06_element_legend", lambda: pp.element_legend(["Li", "P", "S", "Cl"], reg=ps.ColorRegistry(REG))),
     ("07_axes_triad_abc", lambda: pp.axes_triad(view_matrix(), labels=("a", "b", "c"))),
     ("08_scale_bar_5_angstrom", lambda: pp.scale_bar(5, "Å", 0.35)),
     ("09_region_strip_crystal_glass",

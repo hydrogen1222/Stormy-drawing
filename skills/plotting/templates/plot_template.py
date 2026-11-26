@@ -6,6 +6,7 @@
 """__FIGURE_NAME__
 
 Run in this folder:  uv run plot.py   (or: python plot.py)
+For submission:      python plot.py --submit   (adds .svg, 1200-dpi .tif, transparent .png)
 What the figure shows, where the data came from, and which column is which:
 see README.md in this folder.
 """
@@ -57,5 +58,6 @@ def draw():
     return fig
 
 
-# writes output/<mode>/<folder name>_<mode>.* for every mode in MODES
+# writes output/<folder name>_<mode>.png and .pdf for every mode in MODES, plus output/checks.txt;
+# a figure without FAIL is also copied to figures/_preview/
 ps.save_modes(draw, HERE.name, HERE, MODES)

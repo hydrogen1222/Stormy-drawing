@@ -96,9 +96,27 @@ try {
     if ($LASTEXITCODE -ne 0) { Write-Host $plog; Fail "demo_parts" }
     if ($plog -match "FAIL") { Write-Host $plog; Fail "a demo part failed its checks" }
     foreach ($mode in @("normal", "soft")) {
-        if ((Get-ChildItem -LiteralPath (P @($parts, $mode)) -Recurse -Filter "*.pdf").Count -ne 12) { Fail "expected 12 $mode parts" }
+        # one PDF in every part folder (the number of parts grows as parts are added)
+        $nparts = (Get-ChildItem -LiteralPath (P @($parts, $mode)) -Directory).Count
+        $npdf = (Get-ChildItem -LiteralPath (P @($parts, $mode)) -Recurse -Filter "*.pdf").Count
+        if ($nparts -lt 15 -or $npdf -ne $nparts) { Fail "expected one PDF in each of the $mode part folders (at least 15)" }
     }
-    Ok "init_figure, eleven demo figures and twelve demo parts in both colour modes"
+    if (Test-Path (P @($skill, "scripts", "colors.json"))) { Fail "a demo wrote colors.json into the skill" }
+    Ok "init_figure, eleven demo figures and every demo part in both colour modes"
+
+    # 6b. diagrams (Typst + fletcher), when the typst package is installed
+    & $Py -c "import typst" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        $dia = P @($Tmp, "demo_dia")
+        $dlog = & $Py (P @($skill, "examples", "demo_diagrams.py")) $dia 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { Write-Host $dlog; Fail "demo_diagrams" }
+        $npng = (Get-ChildItem -LiteralPath (P @($dia, "diagrams")) -Recurse -Filter "*.png" |
+                 Where-Object { $_.Directory.Name -eq "output" }).Count
+        if ($npng -ne 6) { Fail "expected 3 diagrams x 2 modes" }
+        Ok "the three example diagrams"
+    } else {
+        Write-Host "SKIP: diagrams (pip install typst to test them)"
+    }
 
     # 7. an outdated project style copy is replaced and archived
     $styleFile = P @($P1, "figures", "_style", "pubstyle.py")

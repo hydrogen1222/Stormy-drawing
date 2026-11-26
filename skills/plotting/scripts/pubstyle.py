@@ -17,7 +17,9 @@ Typical plot.py (the template made by init_figure.py has this shape):
         ps.place_legend(ax)                       # top right unless it covers data or text
         return fig
 
-    # writes output/normal/ and output/soft/ (PNG x2, PDF, SVG, TIFF + checks each)
+    # writes output/003_..._normal.png|.pdf, output/003_..._soft.png|.pdf, output/checks.txt
+    # (`python plot.py --submit` adds .svg, .tif and _transparent.png) and copies the
+    # PNGs of a figure that passed every check into figures/_preview/
     ps.save_modes(draw, "003_Li6PS5Cl_bulk_DOS", folder=".")
 
 Everything here follows the decisions recorded in the skill's SKILL.md.
@@ -68,7 +70,12 @@ for _stream in (sys.stdout, sys.stderr):
 #          to existing functions, so figures drawn with 0.9.0 look the same.
 #   0.9.2: read_plane() default unit is Å (what Multiwfn writes) and it reads
 #          Multiwfn's six-column file (X Y Z x y value); 0.9.1 assumed Bohr.
-STYLE_VERSION = "0.9.2"
+#   0.10.0: tidier output. output/ is flat (no normal/ and soft/ subfolders): PNG and PDF
+#          per mode plus one checks.txt; SVG, TIFF and transparent PNG only with
+#          `python plot.py --submit`. Figures that pass every check are copied to
+#          figures/_preview/ (one folder to browse every figure). An old output/normal|soft
+#          layout moves to archive/output_<date>/ on the first redraw. Drawing unchanged.
+STYLE_VERSION = "0.10.0"
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
@@ -1887,19 +1894,122 @@ def _embed_svg_fonts(path: Path) -> str:
     return f"PASS svg: {len(faces)} font face(s) embedded as a subset ({len(chars)} characters)"
 
 
+# Daily output: a PNG to look at and a PDF (vector) for slides and layouts. The files
+# journals ask for at submission (SVG, 1200-dpi TIFF, transparent PNG) are made only on
+# request: `python plot.py --submit`, or formats=SUBMIT_FORMATS.
+DAILY_FORMATS = ("png", "pdf")
+SUBMIT_FORMATS = ("png", "pdf", "svg", "tif", "transparent")
+PREVIEW_DIR = "_preview"
+
+
+def submit_requested(argv=None) -> bool:
+    """True when the script was started with --submit (python plot.py --submit)."""
+    return "--submit" in (sys.argv if argv is None else argv)
+
+
+def _formats(formats) -> tuple[str, ...]:
+    if formats is None:
+        formats = SUBMIT_FORMATS if submit_requested() else DAILY_FORMATS
+    formats = tuple(formats)
+    bad = [f for f in formats if f not in SUBMIT_FORMATS]
+    if bad or not formats:
+        raise ValueError(f"formats must be chosen from {SUBMIT_FORMATS}, got {formats!r}")
+    return formats
+
+
+def prepare_output(folder: str | Path, name: str) -> Path:
+    """<folder>/output/, ready for a fresh drawing of figure `name`.
+
+    output/ belongs to plot.py: files of this figure from an earlier run (any mode, any
+    format, also in subfolders such as output/packages/) and checks.txt are removed, so
+    nothing stale is left next to the new files; emptied subfolders go too.
+    Subfolders of the layout before 0.10.0 (output/normal/, output/soft/) move to
+    archive/output_<date>/ instead of being deleted."""
+    import datetime
+    import shutil
+    folder = Path(folder)
+    out = folder / "output"
+    legacy = [d for d in ("normal", "soft") if (out / d).is_dir()]
+    if legacy:
+        archive = folder / "archive"
+        archive.mkdir(exist_ok=True)
+        keep, n = archive / f"output_{datetime.date.today()}", 2
+        while keep.exists():
+            keep = archive / f"output_{datetime.date.today()}_{n}"
+            n += 1
+        keep.mkdir()
+        for d in legacy:
+            shutil.move(str(out / d), str(keep / d))
+        print(f"old output layout (output/{'/, output/'.join(legacy)}/) moved to {keep}")
+    out.mkdir(parents=True, exist_ok=True)
+    for f in out.iterdir():
+        if f.is_file() and (f.name.startswith(name + "_") or f.name == "checks.txt"):
+            f.unlink()
+        elif f.is_dir():                              # e.g. output/packages/ of structure figures
+            for g in f.iterdir():
+                if g.is_file() and g.name.startswith(name + "_"):
+                    g.unlink()
+            if not any(f.iterdir()):
+                f.rmdir()
+    return out
+
+
+def write_checks(out: str | Path, results: dict[str, list[str]]) -> Path:
+    """One checks.txt for all colour modes of a figure."""
+    path = Path(out) / "checks.txt"
+    blocks = [f"[{mode}]\n" + "\n".join(lines) for mode, lines in results.items()]
+    path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
+    return path
+
+
+def publish_preview(folder: str | Path, pngs, passed: bool = True) -> list[Path]:
+    """Copy a figure's PNGs into <figure root>/_preview/, the one folder where the user
+    browses every figure of the project. Only figures without a FAIL go there: with
+    passed=False the figure's old previews are removed instead. Previews of figure
+    folders that no longer exist are removed too. Does nothing outside a project (the
+    figure folder's parent must hold _style/)."""
+    import shutil
+    folder = Path(folder).resolve()
+    root = folder.parent
+    if not (root / "_style").is_dir():
+        return []
+    prev = root / PREVIEW_DIR
+    prev.mkdir(exist_ok=True)
+    pngs = [Path(p) for p in pngs]
+    keep = {p.name for p in pngs} if passed else set()
+    figures = {d.name for d in root.iterdir() if d.is_dir() and re.match(r"\d{3}_", d.name)}
+    for f in prev.iterdir():
+        if not f.is_file():
+            continue
+        owner = next((d for d in figures if f.name.startswith(d + "_")), None)
+        if owner is None or (owner == folder.name and f.name not in keep):
+            f.unlink()
+    copied = []
+    if passed:
+        for p in pngs:
+            shutil.copy2(p, prev / p.name)
+            copied.append(prev / p.name)
+    return copied
+
+
 def save_modes(draw, name: str, folder: str | Path = ".",
-               modes: tuple[str, ...] = MODES) -> dict[str, list[str]]:
+               modes: tuple[str, ...] = MODES, formats=None) -> dict[str, list[str]]:
     """Draw and save one figure in every colour mode, tidily:
 
-        <folder>/output/normal/<name>_normal.png|_transparent.png|.pdf|.svg|.tif|_checks.txt
-        <folder>/output/soft/<name>_soft....
+        <folder>/output/<name>_normal.png, <name>_normal.pdf
+        <folder>/output/<name>_soft.png,   <name>_soft.pdf
+        <folder>/output/checks.txt          (both modes)
+        with --submit also <name>_<mode>.svg, .tif, _transparent.png
 
+    and, when no check FAILed, the PNGs into <figure root>/_preview/.
     draw() builds and returns a NEW figure (ps.new_figure inside it, colours from a
     ColorRegistry created inside it); it is called once per mode, after apply(mode).
     Returns {mode: checks}. The style is set back to "normal" afterwards."""
     modes = tuple(modes)
     if not modes or any(m not in MODES for m in modes) or len(set(modes)) != len(modes):
         raise ValueError(f"modes must be a non-empty selection of {MODES}, got {modes!r}")
+    formats = _formats(formats)
+    out = prepare_output(folder, name)
     results = {}
     try:
         for mode in modes:
@@ -1907,30 +2017,44 @@ def save_modes(draw, name: str, folder: str | Path = ".",
             fig = draw()
             if not isinstance(fig, mpl.figure.Figure):
                 raise TypeError("draw() must return the figure it built (return fig)")
-            results[mode] = save(fig, f"{name}_{mode}", Path(folder) / "output" / mode)
+            results[mode] = save(fig, f"{name}_{mode}", out, formats=formats, checks_file=False)
     finally:
         apply(mode="normal")
+    write_checks(out, results)
+    passed = not any(c.startswith("FAIL") for r in results.values() for c in r)
+    pngs = [out / f"{name}_{m}.png" for m in modes] if "png" in formats else []
+    publish_preview(folder, pngs, passed)
     return results
 
 
-def save(fig, name: str, outdir: str | Path = ".") -> list[str]:
-    """Save name.png (white, 600 dpi), name_transparent.png, name.pdf, name.svg
-    (font subset embedded), name.tif (white, 1200 dpi, RGB, LZW) and name_checks.txt.
-    Prints the checks; returns them."""
+def save(fig, name: str, outdir: str | Path = ".", formats=None,
+         checks_file: bool = True) -> list[str]:
+    """Save `fig` as name.png (white, 600 dpi) and name.pdf; with --submit (or
+    formats=SUBMIT_FORMATS) also name.svg (font subset embedded), name.tif (white,
+    1200 dpi, RGB, LZW) and name_transparent.png. Writes name_checks.txt unless
+    checks_file=False (save_modes writes one checks.txt instead). Prints the checks;
+    returns them."""
+    formats = _formats(formats)
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     refresh_placements(fig)
     checks = check_figure(fig)
-    fig.savefig(outdir / f"{name}.png", dpi=600)
-    fig.savefig(outdir / f"{name}_transparent.png", dpi=600, transparent=True)
-    fig.savefig(outdir / f"{name}.pdf")
-    fig.savefig(outdir / f"{name}.svg")
-    try:
-        checks.append(_embed_svg_fonts(outdir / f"{name}.svg"))
-    except Exception as exc:                      # embedding must never lose the figure
-        checks.append(f"NOTE svg: fonts not embedded ({type(exc).__name__}: {exc})")
-    _save_tiff(fig, outdir / f"{name}.tif")
-    (outdir / f"{name}_checks.txt").write_text("\n".join(checks) + "\n", encoding="utf-8")
+    if "png" in formats:
+        fig.savefig(outdir / f"{name}.png", dpi=600)
+    if "transparent" in formats:
+        fig.savefig(outdir / f"{name}_transparent.png", dpi=600, transparent=True)
+    if "pdf" in formats:
+        fig.savefig(outdir / f"{name}.pdf")
+    if "svg" in formats:
+        fig.savefig(outdir / f"{name}.svg")
+        try:
+            checks.append(_embed_svg_fonts(outdir / f"{name}.svg"))
+        except Exception as exc:                      # embedding must never lose the figure
+            checks.append(f"NOTE svg: fonts not embedded ({type(exc).__name__}: {exc})")
+    if "tif" in formats:
+        _save_tiff(fig, outdir / f"{name}.tif")
+    if checks_file:
+        (outdir / f"{name}_checks.txt").write_text("\n".join(checks) + "\n", encoding="utf-8")
     plt.close(fig)
     print(f"[{name}]")
     for line in checks:

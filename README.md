@@ -1,15 +1,17 @@
 # Stormy-drawing
 
-给 AI agent 用的科研绘图 skill。让 Claude Code、Codex、Qwen Code、Kimi、pi、opencode、Antigravity（agy）等 agent 画出 Origin 风格、可以直接投稿的图，并且每张图都能随时重画。Linux、macOS、Windows 都能用。
+给 AI agent 用的科研绘图 skill。让 Claude Code、Codex、Qwen Code、Kimi、pi、opencode、Antigravity（agy）等 agent 画出 Origin 风格、可以直接投稿的图和流程图，并且每张图都能随时重画。Linux、macOS、Windows 都能用。
 
 作者：**Stormy**（[@hydrogen1222](https://github.com/hydrogen1222)）与 **Claude**（Anthropic）。
 
-> English summary: a skill that teaches AI coding agents to make publication-quality matplotlib figures in one fixed, Origin-like style (bold Arial, outward major and minor ticks, closed frame), and to keep every figure reproducible: one folder per figure holding the copied data, the `plot.py` that draws it, and a README recipe. Built for computational materials science (DOS, band structures, NEB barriers, RDF, MSD, Arrhenius plots, 2D maps), usable for any line plot. Install with `install.sh` (Linux, macOS) or `install.ps1` (Windows), see below.
+> English summary: a skill that teaches AI coding agents to make publication-quality matplotlib figures in one fixed, Origin-like style (bold Arial, outward major and minor ticks, closed frame), plus flowcharts and architecture diagrams in the same style (Typst + fletcher), and to keep every figure reproducible: one folder per figure holding the copied data, the `plot.py` that draws it, and a README recipe; every finished figure is also gathered in one `_preview/` folder. Built for computational materials science (DOS, band structures, NEB barriers, RDF, MSD, Arrhenius plots, 2D maps) and ML/CS workflow diagrams, usable for any line plot. Install with `install.sh` (Linux, macOS) or `install.ps1` (Windows), see below.
 
 ## 它解决什么问题
 
 - agent 画的图默认是 matplotlib 的样子：有网格线、刻度难看、字体不对。这里把样式一次定死：Arial 全加粗、刻度朝外且有主次刻度、闭合图框、Lancet 六色配色（用颜色之外的线型、标记补足色盲可读性）。
-- agent 喜欢把所有图片丢进一个文件夹，图和数据对不上。这里规定每张图一个文件夹，顶层只有五样：`README.md`（"配方"说明：哪一列是横轴、哪一列是纵轴、数据从哪个计算来）、`plot.py`、`data/`（复制来的数据）、`output/`（`normal/` 和 `soft/` 两种色调各一套图）、`archive/`（旧版本）。文件命名统一、不平铺。图不合格时，任何一个新开的 agent 都能照着重画。
+- agent 喜欢把所有图片丢进一个文件夹，图和数据对不上。这里规定每张图一个文件夹，顶层只有五样：`README.md`（"配方"说明：哪一列是横轴、哪一列是纵轴、数据从哪个计算来）、`plot.py`、`data/`（复制来的数据）、`output/`（normal 和 soft 两种色调各一份 PNG 和 PDF，加一个 `checks.txt`）、`archive/`（旧版本）。投稿才要的 SVG、TIFF、透明底 PNG 用 `python plot.py --submit` 才生成。图不合格时，任何一个新开的 agent 都能照着重画。
+- 图多了不好找。每张过了检查的图会自动复制一份 PNG 到图根目录下的 `_preview/`，想看所有图只开这一个文件夹。
+- 流程图、示意图（计算流程、机器学习的训练循环、网络结构）用 Typst 的 fletcher 包画（`init_figure.py ... --diagram`），字体、字号、线宽、配色和曲线图一致，同样自动检查（字体是不是全是 Arial、字号、宽度能不能放进单栏/双栏）。
 - agent 说"画好了"但图有毛病。这里每次保存都会自动检查，而且是量出图上实际的东西，不是看配置：每段文字（刻度、图例、公式）的字体、字号、是否加粗，每条线的线宽，刻度方向和粗细，有没有网格，图框是否闭合，上下标是否用公式渲染，文字有没有被裁掉，图例有没有压住曲线。不过关的图不交给人看。
 
 ## 包含什么
@@ -19,14 +21,18 @@ skills/plotting/
   SKILL.md                    skill 正文（中文）：目录结构、画图和重画的步骤、全部样式规则、自查清单
   scripts/pubstyle.py         样式模块：样式、三种固定画布、坐标轴取整、图例避让、颜色登记、检查和保存
   scripts/pubparts.py         拼图用的矢量部件：Turbo 色标条、等值面/元素图例、坐标轴三角、比例尺、区域条、能级图、放大小图框、箭头和虚线框
-  scripts/pubstruct.py        结构图模块（实验性）：同一个晶体或分子用所有装了的绘图包各画一遍，文件名以包名结尾，供挑选
-  scripts/init_figure.py      在项目里新建一个图文件夹（--plane 平面图、--structure 结构图）；--update-style 同步项目的样式文件
+  scripts/pubstruct.py        结构图模块（实验性）：同一个晶体或分子用所有装了的绘图包各画一遍，拼成一张总览图供挑选
+  scripts/pubdiagram.py       流程图模块：编译 diagram.typ，量出字体、字号、宽度并检查
+  scripts/stormy.typ          流程图的样式和函数（Typst + fletcher）：step、decide、store、group、flow……
+  scripts/init_figure.py      在项目里新建一个图文件夹（--plane 平面图、--structure 结构图、--diagram 流程图）；--update-style 同步项目的样式文件
   templates/                  plot.py 和 README.md 模板
   references/figure-types.md  态密度、能带、能垒、径向分布函数、均方位移、阿伦尼乌斯图、二维色图、柱状图的约定
   references/setup.md         安装 Arial 字体和 Python 环境
   references/structures.md    晶体结构图（OVITO；VESTA 做法待实测；--structure 各包对比的说明和状态）
+  references/diagrams.md      流程图：函数、公式写法、检查、看图要点
   examples/demo_all_types.py  用假数据画出全部图型，也用来自测
   examples/demo_parts.py      画出全部拼图部件的示例
+  examples/demo_diagrams.py   画出 examples/diagrams/ 里的三张示例流程图
 install.sh                    安装脚本（Linux、macOS）
 install.ps1                   安装脚本（Windows PowerShell）
 tests/smoke_test.sh           安装和出图的自动测试（Linux、macOS），最后会运行 test_pubstyle.py
@@ -80,12 +86,12 @@ Windows 上默认复制，不需要管理员权限，也不需要打开"开发�
 
 装好后重启或刷新 agent，让它重新读取 skill。
 
-**更新**：`git pull` 之后，在每个项目里用 `--force`（Windows 用 `-Force`）重装，再运行 `python .agents/skills/plotting/scripts/init_figure.py --update-style .` 把项目的 `figures/_style/pubstyle.py` 换成新版（旧的自动存进 `figures/_style/archive/`），然后重画项目里的图。
+**更新**：`git pull` 之后，在每个项目里用 `--force`（Windows 用 `-Force`）重装，再运行 `python .agents/skills/plotting/scripts/init_figure.py --update-style .` 把项目的 `figures/_style/pubstyle.py` 换成新版（旧的自动存进 `figures/_style/archive/`），然后重画项目里的图。从 0.10.0 以前的版本更新时，重画会把旧的 `output/normal/`、`output/soft/` 自动移进各图的 `archive/`，换成平铺的新布局。
 
 ## 第一次在某台机器上画图
 
 1. **Arial 字体**。Windows 和 macOS 自带，不用管。Linux 服务器上要装一次：Arial 是商业字体，不能随仓库分发，从 Windows 的 `C:\Windows\Fonts\` 拷出 `arial.ttf`、`arialbd.ttf`、`ariali.ttf`、`arialbi.ttf`，放进服务器的 `~/.local/share/fonts/`，再清掉 matplotlib 的字体缓存。不需要管理员权限，步骤见 `skills/plotting/references/setup.md`。没有 Arial 时脚本会直接报错，不会偷偷换字体。
-2. **Python 环境**：需要 `matplotlib>=3.8` 和 `numpy`。有 [uv](https://docs.astral.sh/uv/) 的话直接 `uv run plot.py`。
+2. **Python 环境**：需要 `matplotlib>=3.8` 和 `numpy`；画流程图再加 `typst`（`pip install typst`，第一次编译会联网下载 Typst 包 fletcher）。有 [uv](https://docs.astral.sh/uv/) 的话直接 `uv run plot.py`，依赖自动装。
 
 ## 测试
 

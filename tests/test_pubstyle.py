@@ -308,7 +308,7 @@ def checker_covers_colorbar_and_top_axis():
 def svg_embeds_the_font_subset():
     fig, ax = _good_figure()
     ax.set_xlabel(r"$E-E_{\rm VBM}$ (eV)")                    # italic math + upright text
-    checks = ps.save(fig, "svgfont", TMP / "out_svg")
+    checks = ps.save(fig, "svgfont", TMP / "out_svg", formats=ps.SUBMIT_FORMATS)
     assert any(c.startswith("PASS svg") for c in checks), checks
     text = (TMP / "out_svg" / "svgfont.svg").read_text(encoding="utf-8")
     ET.fromstring(text.encode("utf-8"))                       # still valid XML
@@ -396,22 +396,33 @@ def template_is_guarded_then_runs_end_to_end():
     r = run_py(plot, cwd=folder)
     assert r.returncode == 0, r.stdout + r.stderr
     name = folder.name
-    # tidy: the folder top level stays five entries, every output sits in output/<mode>/
+    # tidy: the folder top level stays five entries; output/ is flat: PNG + PDF per mode
+    # and one checks.txt, nothing else on a daily run
     assert sorted(p.name for p in folder.iterdir()) == ["README.md", "archive", "data", "output", "plot.py"]
-    assert sorted(p.name for p in (folder / "output").iterdir()) == ["normal", "soft"]
+    daily = sorted(f"{name}_{m}{x}" for m in ("normal", "soft") for x in (".pdf", ".png")) + ["checks.txt"]
+    assert sorted(p.name for p in (folder / "output").iterdir()) == daily
+    report = (folder / "output" / "checks.txt").read_text(encoding="utf-8")
+    assert "FAIL" not in report and "colour mode normal" in report and "colour mode soft" in report
+    # the PNGs of a figure without FAIL are in the project's _preview/ gallery
+    preview = proj / "figures" / "_preview"
+    assert sorted(p.name for p in preview.iterdir()) == [f"{name}_normal.png", f"{name}_soft.png"]
+    # --submit adds the journal formats, still flat
+    r = run_py(plot, "--submit", cwd=folder)
+    assert r.returncode == 0, r.stdout + r.stderr
     for mode in ("normal", "soft"):
-        for suffix in (".png", "_transparent.png", ".pdf", ".svg", ".tif", "_checks.txt"):
-            f = folder / "output" / mode / f"{name}_{mode}{suffix}"
+        for suffix in (".png", "_transparent.png", ".pdf", ".svg", ".tif"):
+            f = folder / "output" / f"{name}_{mode}{suffix}"
             assert f.exists(), f"missing {f.relative_to(folder)}"
-        report = (folder / "output" / mode / f"{name}_{mode}_checks.txt").read_text(encoding="utf-8")
-        assert "FAIL" not in report and f"colour mode {mode}" in report
-    # the user has chosen: only that mode is drawn
+    assert not [p for p in (folder / "output").iterdir() if p.is_dir()]
+    # the user has chosen: only that mode is drawn, the other mode's files (and the
+    # submit-only formats of the earlier run) are cleared without being asked
     s = plot.read_text(encoding="utf-8").replace('MODES = ("normal", "soft")', 'MODES = ("soft",)')
     plot.write_text(s, encoding="utf-8")
-    shutil.rmtree(folder / "output")
     r = run_py(plot, cwd=folder)
     assert r.returncode == 0, r.stdout + r.stderr
-    assert [p.name for p in (folder / "output").iterdir()] == ["soft"]
+    assert sorted(p.name for p in (folder / "output").iterdir()) == \
+        sorted(["checks.txt", f"{name}_soft.pdf", f"{name}_soft.png"])
+    assert sorted(p.name for p in preview.iterdir()) == [f"{name}_soft.png"]
 
 
 @test
@@ -430,7 +441,28 @@ def save_modes_validates_and_leaves_the_style_normal():
     for r in res.values():
         no_fail(r)
     assert ps._STATE["mode"] == "normal"
-    assert (TMP / "sm" / "output" / "soft" / "f_soft.pdf").exists()
+    assert (TMP / "sm" / "output" / "f_soft.pdf").exists()
+    assert not (TMP / "_preview").exists()          # not a project: no gallery
+
+
+@test
+def an_old_output_layout_moves_to_archive_on_the_first_redraw():
+    """Figures drawn before 0.10.0 have output/normal/ and output/soft/; the first redraw
+    keeps them in archive/output_<date>/ and writes the flat layout."""
+    folder = TMP / "legacy" / "007_old_figure"
+    for mode in ("normal", "soft"):
+        (folder / "output" / mode).mkdir(parents=True)
+        (folder / "output" / mode / f"007_old_figure_{mode}.tif").write_bytes(b"old")
+
+    def draw():
+        fig, ax = ps.new_figure()
+        ax.plot([0, 1], [0, 1], color=ps.ColorRegistry(TMP / "legacy_colors.json").color("Li"))
+        ax.set_xlabel("x"); ax.set_ylabel("y")
+        return fig
+    ps.save_modes(draw, folder.name, folder)
+    assert not [p for p in (folder / "output").iterdir() if p.is_dir()]
+    kept = list((folder / "archive").glob("output_*/normal/007_old_figure_normal.tif"))
+    assert len(kept) == 1 and kept[0].read_bytes() == b"old", kept
 
 
 @test
@@ -440,7 +472,7 @@ def update_style_replaces_an_old_copy():
     style.write_text('STYLE_VERSION = "0.7.0"\n', encoding="utf-8")
     r = run_py(INIT, "--update-style", proj)
     assert "UPDATED" in r.stdout, r.stdout
-    assert re.search(r'^STYLE_VERSION = "0\.9\.2"', style.read_text(encoding="utf-8"), re.M)
+    assert re.search(r'^STYLE_VERSION = "0\.10\.0"', style.read_text(encoding="utf-8"), re.M)
     assert list((proj / "figures" / "_style" / "archive").glob("pubstyle_0.7.0_*.py"))
 
 
@@ -979,10 +1011,11 @@ def init_figure_keeps_the_parts_module_in_the_style_folder():
 
 @test
 def the_skill_scripts_folder_stays_tidy():
-    """Only the four scripts live there; a stray colors.json or temp file means a
+    """Only the skill's own files live there; a stray colors.json or temp file means a
     registry was created in the wrong place."""
     names = sorted(p.name for p in (SKILL / "scripts").iterdir() if p.name != "__pycache__")
-    assert names == ["init_figure.py", "pubparts.py", "pubstruct.py", "pubstyle.py"], names
+    assert names == ["init_figure.py", "pubdiagram.py", "pubparts.py", "pubstruct.py", "pubstyle.py",
+                     "stormy.typ"], names
 
 
 # ---------------------------------------------------------------- Multiwfn plane maps
@@ -1074,11 +1107,10 @@ def plane_template_marks_atoms_on_the_plane_and_can_move_the_origin():
     r = run_py(plot, cwd=folder)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "3 atoms within 0.4" in r.stdout and "Cl4" not in r.stdout.split("\n")[0], r.stdout
-    for mode in ("normal", "soft"):
-        report = (folder / "output" / mode / f"{folder.name}_{mode}_checks.txt").read_text(encoding="utf-8")
-        assert "FAIL" not in report, report
+    report = (folder / "output" / "checks.txt").read_text(encoding="utf-8")
+    assert "FAIL" not in report and "colour mode soft" in report, report
     # the vector files keep a dense picture (a 7 x 5 grid is resampled to IMAGE_PX), not matplotlib's ~100 ppi one
-    pdf = (folder / "output" / "normal" / f"{folder.name}_normal.pdf").read_bytes()
+    pdf = (folder / "output" / f"{folder.name}_normal.pdf").read_bytes()
     widths = [int(w) for w in re.findall(rb"/Width (\d+)", pdf)]
     assert max(widths) >= 1000, widths
     # origin on an atom: still runs, and a name that is not in the file is refused clearly
@@ -1164,22 +1196,39 @@ def structure_template_names_every_picture_with_the_package_suffix():
     plot.write_text(text, encoding="utf-8")
     r = run_py(plot, cwd=folder)
     assert r.returncode == 0, r.stdout + r.stderr
+    # output/: one overview per mode to look at; the single pictures in output/packages/
+    out = folder / "output"
+    assert sorted(p.name for p in out.iterdir()) == sorted(
+        ["packages"] + [f"001_Li2S_cell_{m}_{x}" for m in ("normal", "soft")
+                        for x in ("compare.png", "packages.txt")]), sorted(p.name for p in out.iterdir())
     for mode in ("normal", "soft"):
-        out = folder / "output" / mode
-        names = sorted(p.name for p in out.iterdir())
         stem = f"001_Li2S_cell_{mode}"
-        assert names == [f"{stem}_ase.png", f"{stem}_packages.txt", f"{stem}_raycast.png"], names
+        assert (out / "packages" / f"{stem}_ase.png").exists() and (out / "packages" / f"{stem}_raycast.png").exists()
         report = (out / f"{stem}_packages.txt").read_text(encoding="utf-8")
         assert "EXPERIMENTAL" in report and "OK       raycast" in report and "SKIPPED  rdkit" in report, report
+        assert "overview:" in report, report
+    preview = sorted(p.name for p in (proj / "figures" / "_preview").iterdir())
+    assert preview == ["001_Li2S_cell_normal_compare.png", "001_Li2S_cell_soft_compare.png"], preview
     import json
     reg = json.loads((proj / "figures" / "_style" / "colors.json").read_text(encoding="utf-8"))
     assert set(reg["element"]) == {"Li", "S"}, reg          # colours come from the project's registry
     from matplotlib.image import imread
-    a = imread(folder / "output" / "normal" / "001_Li2S_cell_normal_raycast.png")[..., :3]
-    b = imread(folder / "output" / "soft" / "001_Li2S_cell_soft_raycast.png")[..., :3]
+    a = imread(out / "packages" / "001_Li2S_cell_normal_raycast.png")[..., :3]
+    b = imread(out / "packages" / "001_Li2S_cell_soft_raycast.png")[..., :3]
     sat = lambda im: float((im.max(-1) - im.min(-1)).mean())
     assert sat(b) < sat(a), (sat(a), sat(b))                # soft mode is less saturated
+    # one package chosen: its pictures straight into output/, no overview, old ones cleared
+    plot.write_text(plot.read_text(encoding="utf-8").replace(
+        'PACKAGES = ("raycast", "ase", "rdkit")', 'PACKAGES = ("raycast",)').replace(
+        'MODES = ("normal", "soft")', 'MODES = ("soft",)'), encoding="utf-8")
+    r = run_py(plot, cwd=folder)
+    assert r.returncode == 0, r.stdout + r.stderr
+    names = sorted(p.name for p in out.iterdir())
+    assert names == ["001_Li2S_cell_soft_packages.txt", "001_Li2S_cell_soft_raycast.png"], names
+    assert sorted(p.name for p in (proj / "figures" / "_preview").iterdir()) == ["001_Li2S_cell_soft_raycast.png"]
     r = run_py(INIT, proj, "Both", "--plane", "--structure")
+    assert r.returncode == 2 and "cannot be combined" in r.stdout, r.stdout
+    r = run_py(INIT, proj, "Both", "--diagram", "--structure")
     assert r.returncode == 2 and "cannot be combined" in r.stdout, r.stdout
 
 
@@ -1198,12 +1247,84 @@ def one_failing_or_missing_package_never_stops_the_others():
     status = {r.tag: r.status for r in rows}
     assert status["raycast"] == "OK" and status["typed-smiles"] == "SKIPPED", status
     assert all(s in {"OK", "SKIPPED"} for s in status.values()), status
-    assert (TMP / "struct_report" / "x_normal_raycast.png").exists()
+    assert (TMP / "struct_report" / "packages" / "x_normal_raycast.png").exists()
+    assert (TMP / "struct_report" / "x_normal_packages.txt").exists()
     try:
         pst.render_all(cif, TMP / "struct_report", "y", {"Li": "#00468B", "S": "#FDAF91"}, packages=("nope",))
         raise AssertionError("an unknown package name must be an error")
     except ValueError as e:
         assert "nope" in str(e)
+
+
+# ---------------------------------------------------------------- diagrams (Typst + fletcher)
+
+def _have_typst() -> bool:
+    try:
+        import typst  # noqa: F401
+    except ImportError:
+        print("  (skipped: pip install typst to test diagrams)")
+        return False
+    return True
+
+
+@test
+def diagram_template_runs_end_to_end():
+    if not _have_typst():
+        return
+    proj = TMP / "diagram_e2e"
+    proj.mkdir()
+    r = run_py(INIT, proj, "Workflow", "--diagram")
+    assert r.returncode == 0, r.stdout + r.stderr
+    folder = proj / "figures" / "001_Workflow"
+    # a diagram has no data/: the drawing is diagram.typ
+    assert sorted(p.name for p in folder.iterdir()) == ["README.md", "archive", "diagram.typ", "plot.py"]
+    style = proj / "figures" / "_style"
+    assert (style / "pubdiagram.py").exists() and (style / "stormy.typ").exists()
+    assert "__" not in (folder / "README.md").read_text(encoding="utf-8")
+    r = run_py(folder / "plot.py", cwd=folder)
+    assert r.returncode == 0, r.stdout + r.stderr
+    out = sorted(p.name for p in (folder / "output").iterdir())
+    assert out == sorted(["checks.txt"] + [f"001_Workflow_{m}{x}" for m in ("normal", "soft")
+                                           for x in (".pdf", ".png")]), out
+    report = (folder / "output" / "checks.txt").read_text(encoding="utf-8")
+    assert "FAIL" not in report and "PASS width" in report and "PASS font" in report, report
+    assert sorted(p.name for p in (proj / "figures" / "_preview").iterdir()) == \
+        ["001_Workflow_normal.png", "001_Workflow_soft.png"]
+    r = run_py(folder / "plot.py", "--submit", cwd=folder)
+    assert r.returncode == 0, r.stdout + r.stderr
+    for x in (".svg", ".tif", "_transparent.png"):
+        assert (folder / "output" / f"001_Workflow_normal{x}").exists(), x
+
+
+@test
+def diagram_checks_catch_math_fonts_tiny_text_and_overwide_layouts():
+    if not _have_typst():
+        return
+    import pubdiagram as pd
+    proj = TMP / "diagram_checks"
+    (proj / "_style").mkdir(parents=True)
+    shutil.copy2(SKILL / "scripts" / "stormy.typ", proj / "_style" / "stormy.typ")
+
+    def run(name, body, width="double"):
+        folder = proj / name
+        folder.mkdir()
+        (folder / "diagram.typ").write_text(
+            '#import "../_style/stormy.typ": *\n#show: setup\n' + body + "\n", encoding="utf-8")
+        res = pd.render(folder, width, ("normal",))["normal"]
+        return [c for c in res if c.startswith("FAIL")]
+
+    ok = run("001_ok", "#canvas(step((0, 0), [#v[E]#sub[#v[i]] #small[note]], name: <a>), "
+                       "flow(<a>, <b>, label: [x]), terminal((1, 0), [end], tone: 2, name: <b>))")
+    assert not ok, ok
+    bad = run("002_math", "#canvas(step((0, 0), [$E = sum_i epsilon_i$]))")
+    assert any(c.startswith("FAIL font") for c in bad), bad
+    bad = run("003_tiny", "#canvas(step((0, 0), text(size: 4pt)[tiny]))")
+    assert any(c.startswith("FAIL text size") and "below" in c for c in bad), bad
+    bad = run("004_wide", "#canvas(..range(8).map(i => step((i, 0), [Long step name])))", width="single")
+    assert any(c.startswith("FAIL width") for c in bad), bad
+    # only the diagram without FAIL reaches the gallery
+    assert sorted(p.name for p in (proj / "_preview").iterdir()) == ["001_ok_normal.png"]
+    raises(ValueError, pd.render, proj / "001_ok", "a4", match="width must be")
 
 
 # ---------------------------------------------------------------- no personal leftovers
@@ -1215,7 +1336,7 @@ def no_author_specific_instructions_left():
     pattern = re.compile(r"user02|\bstorm\b|cluster-agents|问 Stormy|告诉 Stormy|ask Stormy|交给 Stormy|GIMP")
     offenders = []
     for path in list(SKILL.rglob("*")) + [REPO / "AGENTS_snippet.md"]:
-        if path.is_file() and path.suffix in {".md", ".py"} and "__pycache__" not in path.parts:
+        if path.is_file() and path.suffix in {".md", ".py", ".typ"} and "__pycache__" not in path.parts:
             for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if pattern.search(line):
                     offenders.append(f"{path.relative_to(REPO)}:{n}: {line.strip()[:80]}")

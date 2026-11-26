@@ -7,6 +7,7 @@
 
 Scalar field (ELF, density, ...) on a plane exported from Multiwfn; atoms lying on the
 plane are marked automatically. Run in this folder:  uv run plot.py   (or: python plot.py)
+For submission: python plot.py --submit   (adds .svg, 1200-dpi .tif, transparent .png)
 Needs two files in data/:
   plane.txt  Multiwfn main function 4, then "Export the current plane data to plane.txt"
   atoms.txt  one atom per line:  index element x y z   (Å, same index as in the molden file)

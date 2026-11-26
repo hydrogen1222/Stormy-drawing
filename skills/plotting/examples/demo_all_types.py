@@ -32,7 +32,9 @@ def run(mode: str) -> None:
     reg = ps.ColorRegistry(Path(tempfile.mkdtemp()) / "colors.json")
 
     def save(fig, name):
-        ps.save(fig, f"{name}_{mode}", root / mode / name)
+        # every format, including the submission ones (SVG, TIFF, transparent PNG), so the
+        # demo also tests them; a real plot.py writes only PNG + PDF unless run with --submit
+        ps.save(fig, f"{name}_{mode}", root / mode / name, formats=ps.SUBMIT_FORMATS)
 
     g = lambda x, c, w, a: a * np.exp(-((x - c) / w) ** 2)  # noqa: E731
 

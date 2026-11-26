@@ -1,6 +1,6 @@
 ---
 name: plotting
-description: Make publication-quality figures for computational materials-science projects with matplotlib (DOS, band structures, NEB barriers, RDF, MSD, Arrhenius plots, 2D maps, bar charts) and structure figures, each in its own reproducible figure folder with data, script and recipe. Use for any figure, plot or chart, including redrawing a rejected one.
+description: Make publication-quality figures for computational materials-science projects with matplotlib (DOS, band structures, NEB barriers, RDF, MSD, Arrhenius plots, 2D maps, bar charts), structure figures, and flowcharts or architecture diagrams (workflows, machine-learning and computer-science diagrams, drawn with Typst), each in its own reproducible figure folder. Use for any figure, plot, chart or diagram, including redrawing a rejected one.
 ---
 
 # 绘图（plotting）
@@ -17,6 +17,7 @@ Linux、macOS、Windows 都能用。下文命令里的 `python` 在 Windows 上�
 
 | 情况 | 打开 |
 |---|---|
+| 用户只想**看一眼**数据（检查计算有没有问题、"画出来看看"），没说要留下、要投稿 | **不建图文件夹**：用 `pubstyle` 画一张 PNG 放进系统临时目录，直接给用户看，不写 README、不出 PDF、不画两种色调。用户说"留下""要放进论文/组会"时再按"画一张新图的步骤"正式画 |
 | 第一次在某台机器上画图（装 Arial、准备 Python 环境） | `references/setup.md` |
 | 开始画一张新图 | 本页"画一张新图的步骤"，再用 `scripts/init_figure.py` |
 | 画态密度、能带、能垒、径向分布函数、均方位移、阿伦尼乌斯图、二维色图、柱状图 | `references/figure-types.md` 里对应的那一节 |
@@ -24,7 +25,8 @@ Linux、macOS、Windows 都能用。下文命令里的 `python` 在 Windows 上�
 | 画分子或晶体的结构图，用户没指定用哪个软件，或者说“让我看看哪个好看”（**实验性**） | **agent 自己执行** `python <skill>/scripts/init_figure.py <项目根目录> <英文描述名> --structure`，把结构文件（CONTCAR、CIF、xyz）复制进 `data/`（只有分子 SMILES 时设 `plot.py` 里的 `SMILES`），运行生成的 `plot.py`。它用所有装了的包各画一遍（raycast、ase、povray、ovito、jmol、materia、rdkit、typed-smiles），文件名以包名结尾，`*_packages.txt` 写明哪些跑了、哪些因为什么跳过。亲眼看图，按 README 的表写下各包的观感，请用户挑；用户选定后把 `PACKAGES` 和 `MODES` 改成选定的，删掉其余文件。细节和限制见 `references/structures.md` 的“同一个结构画给用户挑”一节 |
 | Multiwfn 平面图（ELF、电子密度的切片，要标出平面上的原子） | **agent 自己执行** `python <skill>/scripts/init_figure.py <项目根目录> <英文描述名> --plane`，用生成的 `plot.py`，不要手写绘图代码。把用户给的 `plane.txt` 和原子列表（`序号 元素 x y z`，Å，序号与 molden 一致；用户没有就从他的结构文件生成）放进 `data/`。用户说“画布大小一致”“几张图字号要对得上”，意思是每厘米对应的 Å 数相同：设同一个 `WINDOW`（如 `(6.5, 6.5)`），不要把坐标轴撑大而留白边。细节见 `references/figure-types.md` 的 Multiwfn 平面图一条 |
 | 做要放进 PS/AI 里拼图的矢量部件：色标条（VMD 的 Turbo、BWR、RWB、BGR，IRI/NCI/IGMH 的 sign(λ₂)ρ 色标）、等值面图例、元素图例、坐标轴三角、比例尺、晶玻界面区域条、能级图、放大小图框、箭头和虚线框 | `references/figure-types.md` 的"拼图用的矢量部件"一节，函数在 `scripts/pubparts.py`。画色标条前必须先向用户要 VMD 的 min/max、单位、Method（Turbo、BWR、RWB、BGR 都能画，不是只有 Turbo）、Midpoint 和 Offset，不要猜（去哪里看，该节有说明）；用户的微调要求对应哪个参数，该节有表 |
-| 想看每种图在假数据上的样子，或者测试样式模块 | `examples/demo_all_types.py`（图）、`examples/demo_parts.py`（拼图部件） |
+| 流程图、示意图：计算流程、机器学习的训练/主动学习循环、网络结构、算法流程图（"框 + 箭头"的图） | **agent 自己执行** `python <skill>/scripts/init_figure.py <项目根目录> <英文描述名> --diagram`，在生成的 `diagram.typ` 里画（Typst + fletcher，函数和写法见 `references/diagrams.md`），设 `plot.py` 里的 `WIDTH`（single/onehalf/double），运行 `plot.py`。公式不用 `$...$`，用 `#v[E]`、`#sub[i]` 和直接打的希腊字母 |
+| 想看每种图在假数据上的样子，或者测试样式模块 | `examples/demo_all_types.py`（图）、`examples/demo_parts.py`（拼图部件）、`examples/demo_diagrams.py`（流程图） |
 | 改样式本身（字号、颜色、刻度） | 不要自己改，先问用户；改动写进本页"已定的样式" |
 
 ## 目录结构
@@ -33,33 +35,42 @@ Linux、macOS、Windows 都能用。下文命令里的 `python` 在 Windows 上�
 
 ```
 figures/
+  _preview/            所有图的 PNG 汇总在这一个文件夹里（自动维护，见下）
+    001_Li6PS5Cl_bulk_DOS_normal.png
+    001_Li6PS5Cl_bulk_DOS_soft.png
+    002_MLIP_active_learning_loop_normal.png
   _style/
     pubstyle.py        本项目的样式模块（所有 plot.py 都调用它）
     pubparts.py        拼图用的矢量部件（色标条、图例、比例尺……），和 pubstyle.py 一起同步
     pubstruct.py       结构图模块（实验性，用所有装了的绘图包各画一遍），和 pubstyle.py 一起同步
+    pubdiagram.py      流程图模块（编译、检查 diagram.typ），和 pubstyle.py 一起同步
+    stormy.typ         流程图的样式和函数（Typst），和 pubstyle.py 一起同步
     colors.json        颜色登记文件（元素、原子对、结构等的固定颜色）
   001_Li6PS5Cl_bulk_DOS/
     README.md          配方说明（模板见 templates/README_template.md）
     plot.py            画图脚本，在这个文件夹里运行就能重画
     data/              数据：从计算目录复制来的，不是链接
       dos_elements.dat
-    output/            所有输出都在这里，由 plot.py 生成，不手工放文件
-      normal/          正常模式（调色板原色）
-        001_Li6PS5Cl_bulk_DOS_normal.png               白底，600 DPI
-        001_Li6PS5Cl_bulk_DOS_normal_transparent.png   透明底，600 DPI
-        001_Li6PS5Cl_bulk_DOS_normal.pdf / .svg        矢量图，文字可编辑
-        001_Li6PS5Cl_bulk_DOS_normal.tif               投稿用 TIFF，白底，1200 DPI，LZW 无损压缩
-        001_Li6PS5Cl_bulk_DOS_normal_checks.txt        自动检查结果
-      soft/            柔和模式，文件同上，名字以 _soft 结尾
+    output/            所有输出都在这里，平铺，由 plot.py 生成，不手工放文件
+      001_Li6PS5Cl_bulk_DOS_normal.png      正常模式，白底，600 DPI，日常看图、做幻灯片
+      001_Li6PS5Cl_bulk_DOS_normal.pdf      矢量图，文字可编辑，拼图和投稿用
+      001_Li6PS5Cl_bulk_DOS_soft.png / .pdf 柔和模式，同上
+      checks.txt                            两种模式的自动检查结果
     archive/           被替换掉的旧版本
+  002_MLIP_active_learning_loop/            流程图（--diagram）：没有 data/，画在 diagram.typ 里
+    README.md  plot.py  diagram.typ  output/  archive/
 ```
 
+- **`_preview/`**：每次运行 `plot.py`，没有 FAIL 的图把 PNG 复制进来（有 FAIL 的会被撤掉，图文件夹删了它也跟着删）。用户想翻所有图时只开这一个文件夹（Windows 资源管理器用"大图标"）。它是副本，不要手工往里放或在里面改；结构图放进来的是各包并排的总览图。
+- **投稿格式**：`python plot.py --submit` 才额外生成 `.svg`（文字可编辑，嵌入字体子集）、`.tif`（白底 RGB，1200 DPI，LZW）、`_transparent.png`（透明底），同样平铺在 `output/`。日常不生成，免得文件夹里堆一堆用不上的文件。
+- 每次运行 `plot.py` 都会先清掉 `output/` 里这张图上一次的文件，所以不会残留旧格式、旧模式的图。0.10.0 以前的 `output/normal/`、`output/soft/` 在第一次重画时自动移进 `archive/output_<日期>/`。
+
 **整洁是整个仓库的原则：规整、清晰，让人一眼找到东西。**
-- 图文件夹顶层永远只有 `README.md`、`plot.py`、`data/`、`output/`、`archive/` 这五样；数据、输出、旧版本各有固定的子文件夹，不往顶层平铺文件，也不往项目根目录和 `figures/` 里散放文件。
+- 图文件夹顶层永远只有五样：`README.md`、`plot.py`、`data/`（流程图是 `diagram.typ`）、`output/`、`archive/`；数据、输出、旧版本各有固定的位置，不往顶层平铺文件，也不往项目根目录和 `figures/` 里散放文件（`figures/` 里只有 `_style/`、`_preview/` 和编号的图文件夹）。
 - 命名：文件夹 `三位编号_英文描述`；输出文件 `文件夹名_模式[_transparent].格式`，同一张图的所有文件共用同一个前缀，一眼看出是哪张图、哪种模式；日期只出现在 `archive/` 里的名字上（`plot_2026-10-03.py`、`output_2026-10-03/`）。
 - 不留试画的图、中间文件、`.bak` 和重名副本：临时文件放系统临时目录，用完删除。
 - 要新增文件或文件夹时，先问"它该放进哪个已有的位置"；没有合适的位置才新建，并在 README 或本页写明用途。
-- 向用户汇报时给出图文件夹的路径和两三句话，不要把文件清单整个贴出来。
+- 向用户汇报时给出 **`_preview/` 里那张 PNG 的完整路径**（用户点开就能看）和两三句话，不要把文件清单、检查结果整个贴出来，也不要罗列做了哪些步骤。
 
 - 文件夹名：三位编号 + 尽量详细的英文单词，不用中文、不用字母代号。编号和计算目录的编号无关。
 - 图文件夹只由 `init_figure.py` 建在图根目录里，**不放进计算目录**，即使图是关于某个计算的（ESP 的色标条也不放进 ESP 的计算文件夹）。
@@ -70,14 +81,15 @@ figures/
 ## 画一张新图的步骤
 
 1. 想清楚这张图要说明什么，一句话。说不出来就先别画。
-2. 运行（它会顺便检查并更新 `_style/pubstyle.py`，见上面“目录结构”） `python <skill>/scripts/init_figure.py <项目根目录> <英文描述名>`，得到新的图文件夹（Multiwfn 平面图末尾加 `--plane`，见上面的表）。
+2. 运行（它会顺便检查并更新 `_style/pubstyle.py`，见上面“目录结构”） `python <skill>/scripts/init_figure.py <项目根目录> <英文描述名>`，得到新的图文件夹（Multiwfn 平面图末尾加 `--plane`，流程图加 `--diagram`，见上面的表）。
 3. 从计算目录提取数据（vaspkit、nebresults.pl、自己的分析脚本），把结果文件复制进图文件夹。
 4. 先填 `README.md`：数据从哪台机器哪个目录来、怎么提取的、每一列是什么和单位、哪列做横轴哪列做纵轴、能量零点等约定。
-5. 照 `references/figure-types.md` 对应那一节改 `plot.py`，运行它。它会**同时**画 normal 和 soft 两份，写进 `output/normal/` 和 `output/soft/`。
+5. 照 `references/figure-types.md` 对应那一节改 `plot.py`，运行它。它会**同时**画 normal 和 soft 两份，PNG 和 PDF 平铺在 `output/`，检查结果在 `output/checks.txt`，没有 FAIL 的 PNG 同时出现在 `figures/_preview/`。
 6. 看终端里的检查结果，两份的所有 FAIL 都要修掉。
 7. **亲眼看一遍两份 PNG**（用能看图片的工具打开），按下面"出图后自查"逐条核对。
-8. 把检查结果和你看图的结论写进 `README.md` 的"自查结果"。
-9. 向用户报告时给出图文件夹的路径，一句话说这张图说明了什么，并**请用户在 normal 和 soft 里选一个**。用户选定后：把 `plot.py` 里的 `MODES` 改成只含选定的那一个，删掉 `output/` 里另一个模式的文件夹（随时可重画），在 `README.md` 里填"用户选用"。同一篇论文的图保持同一种模式。
+8. 在 `README.md` 的"自查结果"里写一两句：有没有修过 FAIL、看图的结论。不要整段贴检查结果（它在 `checks.txt` 里）。
+9. 向用户报告时给出 `_preview/` 里两张 PNG 的路径，一句话说这张图说明了什么，并**请用户在 normal 和 soft 里选一个**。用户选定后：把 `plot.py` 里的 `MODES` 改成只含选定的那一个，重新运行（另一种模式的文件自动清掉），在 `README.md` 里填"用户选用"。同一篇论文的图保持同一种模式。
+10. 要投稿时才运行 `python plot.py --submit`，补出 SVG、TIFF 和透明底 PNG。
 
 ## 重画一张被退回的图
 
@@ -111,8 +123,8 @@ figures/
 画布和输出
 - 三种画布：`standard` 8 cm × 6 cm（默认）、`tall` 6 cm × 8 cm（能带图）、`strip` 3 cm × 8 cm（能带图右边的态密度窄条）。8 cm 宽正好是期刊单栏图的宽度（各家 8.3–9 cm），按原大印刷时刻度数字 6 磅；一行拼两张（16 cm）放进双栏也基本不缩放。一行拼三张会缩到约 4.5 磅，低于 Nature 的最小 5 磅，这种排法尽量少用，要用时先告诉用户。组会直接用同一张图。
 - 同种画布的图框在画布里的位置固定，拼图时能对齐。带顶部第二横轴的图用 `ps.new_figure(top_axis=True)`，带色标条的图用 `ps.new_figure(colorbar=True)` 加 `ps.add_colorbar`，它们预留的空间也是固定的。刻度数字太长导致文字被裁掉时，检查会报 FAIL，先想办法缩短（换单位、改数量级），不要擅自改边距。
-- 每张图每种色调模式输出：白底 PNG（600 DPI）、透明底 PNG、PDF、SVG、TIFF。PDF 嵌入字体；SVG 里的文字保持为文字（可编辑），并嵌入所用字符的字体子集（浏览器里任何机器上都显示正确；Inkscape、Illustrator 不读内嵌字体，要在装了 Arial 的机器上打开）。
-- 投稿时首选 PDF（矢量，放大不糊，各家都收）。期刊要位图时交 `.tif`：白底、RGB、1200 DPI、LZW 无损压缩，满足各家对线条图最高的要求（Elsevier/CCL 1000、ACS 1200）。PNG 留给日常看图和做幻灯片。不交 JPEG。
+- 每张图每种色调模式日常输出：白底 PNG（600 DPI）和 PDF（嵌入字体）。`--submit` 时再加透明底 PNG、SVG、TIFF。SVG 里的文字保持为文字（可编辑），并嵌入所用字符的字体子集（浏览器里任何机器上都显示正确；Inkscape、Illustrator 不读内嵌字体，要在装了 Arial 的机器上打开）。
+- 投稿时首选 PDF（矢量，放大不糊，各家都收）。期刊要位图时用 `--submit` 生成 `.tif`：白底、RGB、1200 DPI、LZW 无损压缩，满足各家对线条图最高的要求（Elsevier/CCL 1000、ACS 1200）。PNG 留给日常看图和做幻灯片。不交 JPEG。
 
 线、点、图例
 - 所有线 1.0 磅：数据线、拟合线、图框、刻度线、误差棒（Nature 要求不超过 1 磅，Nat. Commun. 要求不低于 1 磅）。数据点直径 4.5 磅。离散数据点用空心圆（白色填充），平滑曲线只是连线，必须写明怎么来的。
@@ -135,7 +147,7 @@ figures/
 
 ## 出图后自查（agent 必须做）
 
-`ps.save_modes`（单个文件用 `ps.save`）会自动检查并生成 `output/<模式>/*_checks.txt`：逐个量出图上每段文字（含刻度数字、图例、公式）实际的字体、字号、是否加粗，每条线的线宽，刻度方向、刻度粗细和长度、有没有网格、图框是否闭合；另外还有上下标写法、文字是否被裁掉、**图例和图中每一段文字是否压住数据、碰到别的文字、跨出图框或跨过参考虚线**、轴角小字、图标题。全部 PASS 之后，还要**亲眼看图**核对：
+`ps.save_modes`（单个文件用 `ps.save`）会自动检查并生成 `output/checks.txt`：逐个量出图上每段文字（含刻度数字、图例、公式）实际的字体、字号、是否加粗，每条线的线宽，刻度方向、刻度粗细和长度、有没有网格、图框是否闭合；另外还有上下标写法、文字是否被裁掉、**图例和图中每一段文字是否压住数据、碰到别的文字、跨出图框或跨过参考虚线**、轴角小字、图标题。全部 PASS 之后，还要**亲眼看图**核对：
 
 - 这张图一眼能看出 README 里那句"想说明什么"吗？
 - 坐标范围符合上面的规则吗？对比图之间一致吗？
