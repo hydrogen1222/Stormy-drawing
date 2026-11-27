@@ -64,8 +64,8 @@ python3 "$P/.agents/skills/plotting/examples/demo_all_types.py" "$TMP/demo" > "$
   || { cat "$TMP/demo.log"; fail "demo_all_types"; }
 grep -q "FAIL" "$TMP/demo.log" && { cat "$TMP/demo.log"; fail "a demo figure failed its checks"; }
 for mode in normal soft; do
-  [ "$(find "$TMP/demo/$mode" -name '*.pdf' | wc -l)" -eq 11 ] || fail "expected 11 $mode demo figures"
-  [ "$(find "$TMP/demo/$mode" -name '*.tif' | wc -l)" -eq 11 ] || fail "expected 11 $mode TIFF files"
+  [ "$(find "$TMP/demo/$mode" -name '*.pdf' | wc -l)" -eq 12 ] || fail "expected 12 $mode demo figures"
+  [ "$(find "$TMP/demo/$mode" -name '*.tif' | wc -l)" -eq 12 ] || fail "expected 12 $mode TIFF files"
 done
 python3 -c "
 import sys, glob
@@ -85,7 +85,7 @@ for mode in normal soft; do
     || fail "expected one PDF in each of the $mode part folders (at least 15)"
 done
 [ ! -e "$P/.agents/skills/plotting/scripts/colors.json" ] || fail "a demo wrote colors.json into the skill"
-ok "init_figure, eleven demo figures and every demo part in both colour modes"
+ok "init_figure, twelve demo figures and every demo part in both colour modes"
 
 # 7b. diagrams (Typst + fletcher), when the typst package is installed
 if python3 -c "import typst" 2>/dev/null; then
