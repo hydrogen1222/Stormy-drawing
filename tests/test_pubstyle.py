@@ -319,6 +319,32 @@ def stacked_bars_reject_bad_input():
 
 
 @test
+def grouped_bars_show_every_value_and_pass_checks():
+    e_disp, e_non = np.array([-0.18, -0.39]), np.array([-1.70, -2.29])
+    for fill in ps.BAR_FILLS:
+        fig, ax = ps.new_figure()
+        out = ps.grouped_bars(ax, ["(111)", "(110)"],
+                              {"Total": e_disp + e_non, "Dispersion": e_disp, "Non-dispersion": e_non},
+                              {"Total": "#00468B", "Dispersion": "#ED0000", "Non-dispersion": "#42B540"},
+                              fill=fill)
+        ax.set_xlabel("Surface facet")
+        ax.set_ylabel("Adsorption energy (eV)")
+        assert ax.get_ylim() == (0.0, -3.0), ax.get_ylim()
+        x = [b.get_x() for b in (out["Total"].patches[0], out["Dispersion"].patches[0],
+                                 out["Non-dispersion"].patches[0])]
+        assert x == sorted(x)                                        # left to right as given
+        assert sorted(t.get_text() for t in ax.texts) == sorted(
+            ["\u22121.88", "\u22122.68", "\u22120.18", "\u22120.39", "\u22121.70", "\u22122.29"])
+        no_fail(ps.save(fig, f"grouped_{fill}", TMP / "out_misc", formats=("png",)))
+    fig, ax = ps.new_figure()
+    raises(ValueError, ps.grouped_bars, ax, ["x"], {"a": [-1.0], "b": [0.5]}, {"a": "k", "b": "r"},
+           match="cross zero")
+    raises(ValueError, ps.grouped_bars, ax, ["x"], {"a": [-1.0]}, {"a": "k"}, group_width=1.2,
+           match="group_width")
+    ps.plt.close(fig)
+
+
+@test
 def pale_fill_is_a_light_tint_outlined_in_the_colour():
     assert ps.lighten("#000000", 0.35) == "#A6A6A6"
     assert ps.lighten("#ED0000", 1.0) == "#ED0000" and ps.lighten("#ED0000", 0.0) == "#FFFFFF"

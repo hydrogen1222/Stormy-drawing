@@ -82,10 +82,12 @@ for _stream in (sys.stdout, sys.stderr):
 #   0.12.0: axis styles: width and colour of the frame and tick marks are chosen per figure
 #          (AXIS in plot.py, save_modes(axis=...), presets in AXIS_STYLES); the check compares
 #          the frame with the chosen style. The default (1.0 pt black) draws as before.
+#   0.13.0: grouped_bars() (several quantities side by side per category, each bar with
+#          its value, e.g. total, dispersion and non-dispersion adsorption energy);
 #          stacked_bars() (a total split into stacked parts); bar fills "solid", "pale"
-#          (light tint, outline in the colour) and "gradient" for stacked_bars and
-#          paired_bars (fill=...); lighten().
-STYLE_VERSION = "0.12.0"
+#          (light tint, outline in the colour) and "gradient" for all three bar helpers
+#          and paired_bars (fill=...); lighten(). Existing functions draw as before.
+STYLE_VERSION = "0.13.0"
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
@@ -1140,6 +1142,66 @@ def stacked_bars(ax, categories, parts: dict, colors: dict, decimals: int = 2,
         names = list(vals)[::-1]
         place_legend(ax, handles=[_fill_handle(colors[n], fill) for n in names], labels=names,
                      ncols=(1, 2))
+    return out
+
+
+def grouped_bars(ax, categories, series: dict, colors: dict, decimals: int = 2,
+                 fill: str = "solid", group_width: float = 0.75, headroom: float = 0.10,
+                 legend: bool = True, max_ticks: int = 6):
+    """Several quantities of one unit side by side for each category, every bar with
+    its value: e.g. the total adsorption energy next to its dispersion and
+    non-dispersion parts, for (111) and (110). Readers see every number, none has
+    to be added up.
+
+    series: {name: values}, left to right within each group, one value per category.
+    colors: {name: colour}, from the colour registry.
+    - Every value has the same sign (bars that cross zero need a zero line in the
+      middle; raises). Negative values are drawn upwards on a downward axis.
+    - The axis ends at the labeled tick above the largest value + headroom.
+    - fill: "solid", "pale" or "gradient" (see BAR_FILLS).
+    - A value wider than its bar slides aside or FAILs the check: on the 8 cm canvas
+      three series fit about three categories.
+    Returns {name: BarContainer}. Set the axis titles on ax."""
+    _check_fill(fill)
+    cats = [str(c) for c in categories]
+    if not series or set(series) != set(colors):
+        raise ValueError("grouped_bars: series and colors need the same names, at least one")
+    vals = {k: np.asarray(v, float) for k, v in series.items()}
+    for k, v in vals.items():
+        if v.shape != (len(cats),):
+            raise ValueError(f"grouped_bars: series {k!r} has {v.size} values for {len(cats)} categories")
+        if not np.all(np.isfinite(v)):
+            raise ValueError(f"grouped_bars: series {k!r} contains NaN or inf")
+    allv = np.concatenate(list(vals.values()))
+    if np.any(allv > 0) and np.any(allv < 0):
+        raise ValueError("grouped_bars: some values are positive and some negative. Bars that "
+                         "cross zero need a zero line in the middle of the frame, which this "
+                         "layout does not have; draw such data with ax.bar and ps.nice_limits")
+    if not np.any(allv):
+        raise ValueError("grouped_bars: every value is zero; there is nothing to draw")
+    if not 0.3 <= group_width <= 0.9:
+        raise ValueError(f"grouped_bars: group_width is 0.3 to 0.9 of the category spacing, got {group_width!r}")
+    sign = -1 if np.any(allv < 0) else 1
+    top, step = _nice_top(float(np.abs(allv).max()), headroom, 0.0, max_ticks)
+
+    xs = np.arange(len(cats), dtype=float)
+    k = len(vals)
+    width = group_width / k
+    out = {}
+    for i, (name, v) in enumerate(vals.items()):
+        out[name] = _draw_bars(ax, xs + (i - (k - 1) / 2) * width, v, colors[name], fill, width)
+    ax.set_xticks(xs, cats)
+    ax.xaxis.set_minor_locator(mpl.ticker.NullLocator())
+    ax.set_xlim(-0.6, len(cats) - 0.4)
+    ax.set_ylim(0, sign * top)                      # downward axis when the values are negative
+    _set_ticks(ax.yaxis, step)
+    for name, cont in out.items():
+        for bar, v in zip(cont.patches, vals[name]):
+            label_bar(ax, bar, f"{v:.{decimals}f}".replace("-", "−"))
+    if legend:
+        place_legend(ax, handles=[_fill_handle(colors[n], fill) for n in vals], labels=list(vals),
+                     ncols=(k, 1), locs=("upper center", "upper left", "upper right")
+                     + tuple(loc for loc in LEGEND_LOCS if not loc.startswith("upper")))
     return out
 
 

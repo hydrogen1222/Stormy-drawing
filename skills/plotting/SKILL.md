@@ -22,6 +22,7 @@ Linux、macOS、Windows 都能用。下文命令里的 `python` 在 Windows 上�
 | 开始画一张新图 | 本页"画一张新图的步骤"，再用 `scripts/init_figure.py` |
 | 画态密度、能带、能垒、径向分布函数、均方位移、阿伦尼乌斯图、二维色图、柱状图 | `references/figure-types.md` 里对应的那一节 |
 | 每个构型两种量并排成对柱子、左右两根纵轴（吸附能 + 距离这类，常在柱子上方贴结构图） | `references/figure-types.md` 的“双纵轴柱状图”一节，用 `ps.paired_bars`，不要自己 `twinx` |
+| 每个类别几种同单位的量并排、每根柱子都标数值（总吸附能和它的各部分） | `references/figure-types.md` 的“分组柱状图”一节，用 `ps.grouped_bars` |
 | 一个总量拆成几部分叠成一根柱子（吸附能 = 色散 + 其余） | `references/figure-types.md` 的“叠加柱状图”一节，用 `ps.stacked_bars` |
 | 用户想要文献里那种低饱和、浅色的柱子 | `fill="pale"` 或 `fill="gradient"`，再配 soft 色调模式；见 `references/figure-types.md` 的“柱状图”一节 |
 | 画晶体结构图 | `references/structures.md` |
