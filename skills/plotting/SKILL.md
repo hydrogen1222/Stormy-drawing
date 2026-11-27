@@ -21,6 +21,7 @@ Linux、macOS、Windows 都能用。下文命令里的 `python` 在 Windows 上�
 | 第一次在某台机器上画图（装 Arial、准备 Python 环境） | `references/setup.md` |
 | 开始画一张新图 | 本页"画一张新图的步骤"，再用 `scripts/init_figure.py` |
 | 画态密度、能带、能垒、径向分布函数、均方位移、阿伦尼乌斯图、二维色图、柱状图 | `references/figure-types.md` 里对应的那一节 |
+| 每个构型两种量并排成对柱子、左右两根纵轴（吸附能 + 距离这类，常在柱子上方贴结构图） | `references/figure-types.md` 的“双纵轴柱状图”一节，用 `ps.paired_bars`，不要自己 `twinx` |
 | 画晶体结构图 | `references/structures.md` |
 | 画分子或晶体的结构图，用户没指定用哪个软件，或者说“让我看看哪个好看”（**实验性**） | **agent 自己执行** `python <skill>/scripts/init_figure.py <项目根目录> <英文描述名> --structure`，把结构文件（CONTCAR、CIF、xyz）复制进 `data/`（只有分子 SMILES 时设 `plot.py` 里的 `SMILES`），运行生成的 `plot.py`。它用所有装了的包各画一遍（raycast、ase、povray、ovito、jmol、materia、rdkit、typed-smiles），文件名以包名结尾，`*_packages.txt` 写明哪些跑了、哪些因为什么跳过。亲眼看图，按 README 的表写下各包的观感，请用户挑；用户选定后把 `PACKAGES` 和 `MODES` 改成选定的，删掉其余文件。细节和限制见 `references/structures.md` 的“同一个结构画给用户挑”一节 |
 | Multiwfn 平面图（ELF、电子密度的切片，要标出平面上的原子） | **agent 自己执行** `python <skill>/scripts/init_figure.py <项目根目录> <英文描述名> --plane`，用生成的 `plot.py`，不要手写绘图代码。把用户给的 `plane.txt` 和原子列表（`序号 元素 x y z`，Å，序号与 molden 一致；用户没有就从他的结构文件生成）放进 `data/`。用户说“画布大小一致”“几张图字号要对得上”，意思是每厘米对应的 Å 数相同：设同一个 `WINDOW`（如 `(6.5, 6.5)`），不要把坐标轴撑大而留白边。细节见 `references/figure-types.md` 的 Multiwfn 平面图一条 |
@@ -112,7 +113,7 @@ figures/
 
 坐标轴
 - 闭合方框（四条边都画），**刻度朝外，主刻度和次刻度都有**，主刻度之间一个次刻度，和 Origin 一致。
-- 只有一根横轴一根纵轴时，刻度只在左边和下边。唯一例外：阿伦尼乌斯图顶部的温度轴。
+- 只有一根横轴一根纵轴时，刻度只在左边和下边。例外只有两个：阿伦尼乌斯图顶部的温度轴，双纵轴柱状图的右轴（`ps.new_figure(right_axis=True)` + `ps.paired_bars`）。
 - 没有网格线。
 - 轴的终点 = 数据最大值再加约 10%，向上取到下一个带数字的主刻度，每根轴 4–6 个数字（`ps.nice_limits`）。峰值 50 画到 60。
 - 有自然零点的量（态密度、径向分布函数、计数、柱状图）从 0 开始。柱状图**必须**从 0 开始。

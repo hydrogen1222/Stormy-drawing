@@ -75,7 +75,11 @@ for _stream in (sys.stdout, sys.stderr):
 #          `python plot.py --submit`. Figures that pass every check are copied to
 #          figures/_preview/ (one folder to browse every figure). An old output/normal|soft
 #          layout moves to archive/output_<date>/ on the first redraw. Drawing unchanged.
-STYLE_VERSION = "0.10.0"
+#   0.11.0: paired_bars() (two quantities per category on left and right y axes, e.g.
+#          adsorption energy and distance, with room left for pasted structure pictures),
+#          label_bar(), new_figure(right_axis=True); place_legend() raises a downward
+#          axis the right way. Existing functions draw as before.
+STYLE_VERSION = "0.11.0"
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
@@ -433,17 +437,23 @@ def apply(mode: str = "normal") -> None:
 
 TOP_AXIS_EXTRA_CM = 0.9     # room for a second (top) axis, Arrhenius plots
 COLORBAR_EXTRA_CM = 1.8     # room for a colorbar on the right, 2D maps
+RIGHT_AXIS_EXTRA_CM = 1.2   # room for a second y axis on the right, paired bars (mirrors the left margin)
 
 
-def new_figure(canvas: str = "standard", top_axis: bool = False, colorbar: bool = False):
+def new_figure(canvas: str = "standard", top_axis: bool = False, colorbar: bool = False,
+               right_axis: bool = False):
     """One panel on a fixed-size canvas with a fixed frame position.
-    top_axis / colorbar reserve fixed extra room (same for every such figure)."""
+    top_axis / colorbar / right_axis reserve fixed extra room (same for every such
+    figure). right_axis is for ps.paired_bars (a second quantity on a right y axis)."""
+    if colorbar and right_axis:
+        raise ValueError("new_figure: the right side holds either a colorbar or a right axis, not both")
     if _STATE["font"] is None:
         apply()
     w, h = CANVAS_CM[canvas]
     left, bottom, right, top = MARGINS_CM[canvas]
     top += TOP_AXIS_EXTRA_CM if top_axis else 0.0
     right += COLORBAR_EXTRA_CM if colorbar else 0.0
+    right += RIGHT_AXIS_EXTRA_CM if right_axis else 0.0
     fig = plt.figure(figsize=(w * CM, h * CM))
     ax = fig.add_axes((left / w, bottom / h, 1 - (left + right) / w, 1 - (bottom + top) / h))
     ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator(2))
@@ -509,6 +519,13 @@ def nice_limits(ax, data_max: float, data_min: float = 0.0, axis: str = "y",
     setter = ax.set_ylim if axis == "y" else ax.set_xlim
     which = ax.yaxis if axis == "y" else ax.xaxis
     setter(lo_t - pad_low * step, hi_t)
+    _set_ticks(which, step)
+    return lo_t, hi_t, step
+
+
+def _set_ticks(which, step: float) -> None:
+    """Major ticks every `step`, one minor tick between, labels with as many
+    decimals as the step needs (0.0, 0.5, 1.0) and a true minus sign."""
     which.set_major_locator(mpl.ticker.MultipleLocator(step))
     which.set_minor_locator(mpl.ticker.AutoMinorLocator(2))
     decimals = max(0, -math.floor(math.log10(step) + 1e-9))
@@ -516,7 +533,6 @@ def nice_limits(ax, data_max: float, data_min: float = 0.0, axis: str = "y",
         decimals += 1
     which.set_major_formatter(mpl.ticker.FuncFormatter(
         lambda v, _pos, d=decimals: f"{v:.{d}f}".replace("-", "\u2212")))  # true minus sign
-    return lo_t, hi_t, step
 
 
 # ---------------------------------------------------------------- overlap
@@ -679,7 +695,8 @@ def place_legend(ax, ncols=(1, 2), max_raise: int = 1, locs=LEGEND_LOCS, **kw):
     if ax.get_legend() is not None:
         ax.get_legend().remove()
     ticks = ax.yaxis.get_majorticklocs()
-    step = ticks[1] - ticks[0] if len(ticks) > 1 else (hi - lo) / 5
+    step = abs(ticks[1] - ticks[0]) if len(ticks) > 1 else abs(hi - lo) / 5
+    step *= 1 if hi >= lo else -1               # downward axis (paired_bars): the top is the low end
     if ax.get_yscale() != "linear":
         max_raise = 0                           # one linear step means nothing on a log axis
     for k in range(max_raise + 1):
@@ -882,6 +899,153 @@ def gap_arrow(ax, x0: float, x1: float, y: float, text_fmt: str = "{:.2f} eV",
                     arrowprops=dict(arrowstyle="<->", lw=DATA_LW, color="0.15", shrinkA=0, shrinkB=0))
         ax.text((x0 + x1) / 2, y, text_fmt.format(gap), va="bottom", ha="center")
     return gap
+
+
+# ---------------------------------------------------------------- bars with values, paired bars
+
+def label_bar(ax, bar, s: str, gap_pt: float = 2.5, max_shift_pt: float = 8.0, **kw):
+    """Write a value just beyond the end of one bar: above a bar that grows upwards
+    on the page, below one that grows downwards, whatever the axis direction.
+    `bar` is one Rectangle of ax.bar(...). If the text would touch another bar or
+    text (a taller neighbour), it slides sideways to the nearest free spot, at most
+    max_shift_pt; if no spot is free it stays centred and the check reports FAIL.
+    The label is redone with the final axis limits when the figure is saved."""
+    fig = ax.figure
+    fig.canvas.draw()
+    x = bar.get_x() + bar.get_width() / 2
+    base, end = bar.get_y(), bar.get_y() + bar.get_height()
+    up = ax.transData.transform((x, end))[1] >= ax.transData.transform((x, base))[1]
+    dy = gap_pt if up else -gap_pt
+    t = ax.annotate(s, xy=(x, end), xytext=(0, dy), textcoords="offset points",
+                    ha="center", va="bottom" if up else "top", fontsize=ANNOT_PT, **kw)
+    t._pubstyle_job = (label_bar, (ax, bar, s), dict(gap_pt=gap_pt, max_shift_pt=max_shift_pt, **kw))
+    r = fig.canvas.get_renderer()
+    obs = _obstacles(ax, skip=(t,))
+    steps = int(max_shift_pt / 0.5)
+    for dx in [0.0] + [sgn * 0.5 * k for k in range(1, steps + 1) for sgn in (1, -1)]:
+        t.xyann = (dx, dy)
+        t.update_positions(r)
+        hard, soft = _assess(ax, t, t.get_window_extent(r), obs=obs)
+        if not hard:
+            t._pubstyle_placed = "ok" if not soft else "note: crosses a reference line"
+            return t
+    t.xyann = (0.0, dy)
+    t._pubstyle_placed = "FAIL: no free spot"
+    return t
+
+
+def _one_sign(values, what: str):
+    """values as an array and their common sign (+1 or -1); bars of one series
+    must all point the same way (this layout has no zero line in the middle)."""
+    v = np.asarray(values, float)
+    if v.ndim != 1 or not len(v):
+        raise ValueError(f"paired_bars: {what} must be a non-empty list of numbers")
+    if not np.all(np.isfinite(v)):
+        raise ValueError(f"paired_bars: {what} contains NaN or inf")
+    if np.all(v >= 0) and np.any(v > 0):
+        return v, 1
+    if np.all(v <= 0) and np.any(v < 0):
+        return v, -1
+    if np.all(v == 0):
+        raise ValueError(f"paired_bars: every value of {what} is zero; there is nothing to draw")
+    raise ValueError(f"paired_bars: {what} has both positive and negative values. Bars that "
+                     "cross zero need a zero line in the middle of the frame, which this layout "
+                     "does not have; draw such data with ax.bar and ps.nice_limits instead")
+
+
+def _nice_top(m: float, headroom: float, room: float, max_ticks: int = 6):
+    """(top, step) of an axis from 0: largest magnitude m plus headroom, the top
+    fraction `room` kept free, rounded up to a labeled major tick."""
+    need = m * (1 + headroom) / (1 - room)
+    step = _nice_step(need, max_ticks)
+    return math.ceil(need / step - 1e-9) * step, step
+
+
+def paired_bars(ax, categories, left, right, left_title: str, right_title: str,
+                left_name: str, right_name: str, left_color: str, right_color: str,
+                left_decimals: int = 2, right_decimals: int = 1, picture_room: float = 0.0,
+                headroom: float = 0.10, gradient: bool = False, legend: bool = True,
+                max_ticks: int = 6):
+    """Two quantities per category as a pair of bars, the first on the left y axis,
+    the second on a right y axis: e.g. adsorption energy (eV) and Li-O distance (A)
+    for configurations 1..5. Build the figure with ps.new_figure(right_axis=True).
+
+    - Both axes start at 0 at the bottom of the frame and end at a labeled tick at
+      the top of the frame. A series of negative values (binding energies) is drawn
+      upwards on a downward axis: 0 at the bottom, the most negative tick at the
+      top, so a stronger binding is a taller bar. Mixed signs in one series raise.
+    - Every bar carries its value (left_decimals / right_decimals), placed by
+      ps.label_bar; the units are in the axis titles, not repeated on the bars.
+    - picture_room: fraction of the frame height kept free at the top, for
+      structure pictures pasted in later in an image editor (e.g. 0.4).
+    - gradient=True fills each bar from its colour at the tip to pale at the base
+      (the XPS-style look of ps.gradient_fill); default: solid bars, dark outline.
+    - legend=True puts a one-row legend (left_name, right_name) at the top of the
+      frame with ps.place_legend; the axis titles stay black like all text.
+
+    Returns the right axis (a secondary axis of `ax`). Set the x-axis title on ax."""
+    cats = [str(c) for c in categories]
+    L, s_l = _one_sign(left, "left")
+    R, s_r = _one_sign(right, "right")
+    if not len(cats) == len(L) == len(R):
+        raise ValueError(f"paired_bars: {len(cats)} categories, {len(L)} left values and "
+                         f"{len(R)} right values; they must be the same number")
+    if not 0.0 <= picture_room <= 0.7:
+        raise ValueError(f"paired_bars: picture_room is a fraction of the frame height, "
+                         f"0 to 0.7, got {picture_room!r}")
+    top_l, step_l = _nice_top(float(np.abs(L).max()), headroom, picture_room, max_ticks)
+    top_r, step_r = _nice_top(float(np.abs(R).max()), headroom, picture_room, max_ticks)
+    scale = (s_r * top_r) / (s_l * top_l)          # left-axis units -> right-axis units
+
+    xs = np.arange(len(cats), dtype=float)
+    width, gap = 0.32, 0.08
+    off = (width + gap) / 2
+    edge = "0.2"
+    if gradient:
+        alpha_top = SOFT_ALPHA_TOP if _STATE["mode"] == "soft" else 0.55
+    rects = []
+    for xpos, heights, color in ((xs - off, L, left_color), (xs + off, R / scale, right_color)):
+        if gradient:
+            cont = ax.bar(xpos, heights, width=width, color="none", edgecolor=color,
+                          lw=FRAME_LW, zorder=2)
+            img = np.ones((256, 1, 4))
+            img[..., :3] = to_rgb(color)
+            img[..., 3] = np.linspace(0.12, alpha_top, 256)[:, None]   # pale base, strong tip
+            for bar in cont.patches:
+                x0, h = bar.get_x(), bar.get_height()
+                im = ax.imshow(img, extent=(x0, x0 + width, 0, h), origin="lower",
+                               aspect="auto", zorder=1.9, interpolation="bilinear")
+                im.set_clip_path(bar)
+        else:
+            cont = ax.bar(xpos, heights, width=width, color=color, edgecolor=edge,
+                          lw=FRAME_LW, zorder=2)
+        rects.append(list(cont.patches))
+
+    ax.set_xticks(xs, cats)
+    ax.xaxis.set_minor_locator(mpl.ticker.NullLocator())
+    ax.set_xlim(-0.6, len(cats) - 0.4)
+    ax.set_ylim(0, s_l * top_l)                     # downward axis when the values are negative
+    _set_ticks(ax.yaxis, step_l)
+    ax.set_ylabel(left_title)
+    sec = ax.secondary_yaxis("right", functions=(lambda y: y * scale, lambda v: v / scale))
+    _set_ticks(sec.yaxis, step_r)
+    sec.set_ylabel(right_title)
+
+    fmt = lambda v, d: f"{v:.{d}f}".replace("-", "−")   # noqa: E731
+    for bar, v in zip(rects[0], L):
+        label_bar(ax, bar, fmt(v, left_decimals))
+    for bar, v in zip(rects[1], R):
+        label_bar(ax, bar, fmt(v, right_decimals))
+
+    if legend:
+        from matplotlib.patches import Patch
+        handles = [Patch(facecolor=to_rgb(c) + ((alpha_top,) if gradient else (1.0,)),
+                         edgecolor=c if gradient else edge, lw=FRAME_LW)
+                   for c in (left_color, right_color)]
+        place_legend(ax, handles=handles, labels=[left_name, right_name], ncols=(2, 1),
+                     locs=("upper center", "upper left", "upper right")
+                     + tuple(loc for loc in LEGEND_LOCS if not loc.startswith("upper")))
+    return sec
 
 
 def incar_value(incar_path: str | Path, tag: str):

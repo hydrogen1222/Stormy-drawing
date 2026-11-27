@@ -257,6 +257,17 @@ def run(mode: str) -> None:
     ps.add_colorbar(fig, ax, im, r"$\rho_{\rm Li}$ (nm$^{\rm {-}3}$)")
     save(fig, "10_Li_density_map_synthetic_data")
 
+    # ---------------------------------------------------------------- paired bars, two y axes
+    # adsorption energy (negative, drawn upwards on a downward axis) and a contact distance
+    # per configuration; the top 40 % of the frame stays free for pasted structure pictures
+    fig, ax = ps.new_figure(right_axis=True)
+    ps.paired_bars(ax, ["1", "2", "3", "4"], [-0.92, -0.41, -0.18, -0.30], [1.95, 2.05, 2.20, 2.10],
+                   r"$E_{\rm ads}$ (eV)", r"$d$ (Å)", "Adsorption energy", "Distance",
+                   reg.color("Adsorption energy", "series"), reg.color("Distance", "series"),
+                   picture_room=0.4, gradient=True)
+    ax.set_xlabel("Configuration")
+    save(fig, "11_paired_bars_synthetic_data")
+
     # ---------------------------------------------------------------- the check must catch this
     fig, ax = ps.new_figure()
     ax.plot([0, 1], [0, 1], color=reg.color("S"))

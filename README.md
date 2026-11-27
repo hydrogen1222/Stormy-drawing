@@ -26,7 +26,7 @@ skills/plotting/
   scripts/stormy.typ          流程图的样式和函数（Typst + fletcher）：step、decide、store、group、flow……
   scripts/init_figure.py      在项目里新建一个图文件夹（--plane 平面图、--structure 结构图、--diagram 流程图）；--update-style 同步项目的样式文件
   templates/                  plot.py 和 README.md 模板
-  references/figure-types.md  态密度、能带、能垒、径向分布函数、均方位移、阿伦尼乌斯图、二维色图、柱状图的约定
+  references/figure-types.md  态密度、能带、能垒、径向分布函数、均方位移、阿伦尼乌斯图、二维色图、柱状图（含双纵轴柱状图）的约定
   references/setup.md         安装 Arial 字体和 Python 环境
   references/structures.md    晶体结构图（OVITO；VESTA 做法待实测；--structure 各包对比的说明和状态）
   references/diagrams.md      流程图：函数、公式写法、检查、看图要点

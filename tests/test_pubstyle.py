@@ -222,6 +222,66 @@ def gradient_fill_survives_nan_gaps():
     no_fail(ps.save(fig, "nan_gap", TMP / "out_misc"))
 
 
+# ---------------------------------------------------------------- paired bars (two y axes)
+
+PAIR_ARGS = (r"$E_{\rm ads}$ (eV)", r"$d$ (Å)", "Adsorption energy", "Distance", "#00468B", "#ED0000")
+
+
+@test
+def paired_bars_draw_negative_energies_upwards_and_pass_checks():
+    for gradient in (False, True):
+        fig, ax = ps.new_figure(right_axis=True)
+        sec = ps.paired_bars(ax, ["1", "2", "3", "4"], [-0.92, -0.41, -0.18, -0.30],
+                             [1.95, 2.05, 2.20, 2.10], *PAIR_ARGS, picture_room=0.4, gradient=gradient)
+        ax.set_xlabel("Configuration")
+        lo, hi = ax.get_ylim()
+        assert lo == 0 and hi < 0, (lo, hi)              # 0 at the bottom, most negative at the top
+        assert 0.92 * 1.1 / abs(hi) <= 0.6 + 1e-9        # top 40 % free for pictures
+        to_right = sec._functions[0]
+        assert abs(to_right(0.0)) < 1e-12 and abs(to_right(hi) - 5.0) < 1e-9   # right axis 0 .. 5
+        texts = [t.get_text() for t in ax.texts]
+        assert len(texts) == 8 and "−0.92" in texts and "2.2" in texts, texts
+        no_fail(ps.save(fig, f"paired_{gradient}", TMP / "out_misc", formats=("png",)))
+
+
+@test
+def paired_bars_reject_bad_input():
+    fig, ax = ps.new_figure(right_axis=True)
+    raises(ValueError, ps.paired_bars, ax, ["1", "2"], [-0.5, 0.2], [2.0, 2.1], *PAIR_ARGS,
+           match="both positive and negative")
+    raises(ValueError, ps.paired_bars, ax, ["1", "2"], [-0.5], [2.0, 2.1], *PAIR_ARGS,
+           match="same number")
+    raises(ValueError, ps.paired_bars, ax, ["1"], [-0.5], [2.0], *PAIR_ARGS, picture_room=0.9,
+           match="picture_room")
+    raises(ValueError, ps.new_figure, colorbar=True, right_axis=True, match="not both")
+    ps.plt.close(fig)
+
+
+@test
+def paired_bars_crowding_is_caught():
+    """Five pairs on the 8 cm canvas: a value over a short bar cannot sit next to its
+    taller partner, and the check must say so instead of passing it."""
+    fig, ax = ps.new_figure(right_axis=True)
+    ps.paired_bars(ax, list("12345"), [-0.92, -0.41, -0.18, -0.30, -0.35],
+                   [1.95, 2.05, 2.20, 2.10, 2.08], *PAIR_ARGS, picture_room=0.4)
+    assert any(c.startswith("FAIL overlap") for c in ps.check_figure(fig))
+    ps.plt.close(fig)
+
+
+@test
+def place_legend_raises_a_downward_axis_the_right_way():
+    """Raising the top of a downward axis (0 at the bottom, -1 at the top) must extend
+    it to -1.2, not shrink it to -0.8."""
+    fig, ax = ps.new_figure()
+    ax.bar(range(6), [-0.97] * 6, width=0.9, color="#00468B", label="Energy")
+    ax.set_xlim(-0.5, 5.5)
+    ax.set_ylim(0, -1.0)
+    ps.place_legend(ax)
+    lo, hi = ax.get_ylim()
+    assert lo == 0 and hi < -1.0, (lo, hi)
+    ps.plt.close(fig)
+
+
 # ---------------------------------------------------------------- the checker
 
 def _good_figure():
@@ -472,7 +532,7 @@ def update_style_replaces_an_old_copy():
     style.write_text('STYLE_VERSION = "0.7.0"\n', encoding="utf-8")
     r = run_py(INIT, "--update-style", proj)
     assert "UPDATED" in r.stdout, r.stdout
-    assert re.search(r'^STYLE_VERSION = "0\.10\.0"', style.read_text(encoding="utf-8"), re.M)
+    assert re.search(rf'^STYLE_VERSION = "{re.escape(ps.STYLE_VERSION)}"', style.read_text(encoding="utf-8"), re.M)
     assert list((proj / "figures" / "_style" / "archive").glob("pubstyle_0.7.0_*.py"))
 
 
