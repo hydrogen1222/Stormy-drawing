@@ -283,6 +283,55 @@ def place_legend_raises_a_downward_axis_the_right_way():
     ps.plt.close(fig)
 
 
+# ---------------------------------------------------------------- stacked bars and bar fills
+
+@test
+def stacked_bars_split_a_negative_total_and_pass_checks():
+    e_ads = np.array([-1.88, -2.68])
+    e_disp = np.array([-0.18, -0.40])
+    for fill in ps.BAR_FILLS:
+        fig, ax = ps.new_figure()
+        out = ps.stacked_bars(ax, ["(111)", "(110)"],
+                              {"Dispersion": e_disp, "Non-dispersion": e_ads - e_disp},
+                              {"Dispersion": "#00468B", "Non-dispersion": "#ED0000"}, fill=fill)
+        ax.set_xlabel("Surface")
+        ax.set_ylabel(r"$E_{\rm ads}$ (eV)")
+        assert ax.get_ylim() == (0.0, -3.0), ax.get_ylim()           # downward axis, labeled top
+        top = out["Non-dispersion"].patches[1]
+        assert abs(top.get_y() + top.get_height() - (-2.68)) < 1e-12  # parts add up to the total
+        assert sorted(t.get_text() for t in ax.texts) == ["\u22121.88", "\u22122.68"]
+        legend = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert legend == ["Non-dispersion", "Dispersion"], legend       # top part listed first
+        no_fail(ps.save(fig, f"stacked_{fill}", TMP / "out_misc", formats=("png",)))
+
+
+@test
+def stacked_bars_reject_bad_input():
+    fig, ax = ps.new_figure()
+    c = {"a": "#00468B", "b": "#ED0000"}
+    raises(ValueError, ps.stacked_bars, ax, ["x", "y"], {"a": [-1, -2], "b": [0.3, -0.5]}, c,
+           match="opposite signs")
+    raises(ValueError, ps.stacked_bars, ax, ["x", "y"], {"a": [-1], "b": [-1, -2]}, c, match="values for")
+    raises(ValueError, ps.stacked_bars, ax, ["x"], {"a": [-1]}, c, match="same names")
+    raises(ValueError, ps.stacked_bars, ax, ["x"], {"a": [-1], "b": [-1]}, c, fill="glossy",
+           match="fill must be")
+    ps.plt.close(fig)
+
+
+@test
+def pale_fill_is_a_light_tint_outlined_in_the_colour():
+    assert ps.lighten("#000000", 0.35) == "#A6A6A6"
+    assert ps.lighten("#ED0000", 1.0) == "#ED0000" and ps.lighten("#ED0000", 0.0) == "#FFFFFF"
+    fig, ax = ps.new_figure(right_axis=True)
+    ps.paired_bars(ax, ["1", "2"], [-0.9, -0.4], [1.9, 2.1], r"$E$ (eV)", r"$d$ (Å)", "E", "d",
+                   "#00468B", "#ED0000", fill="pale")
+    bar = ax.patches[0]
+    assert ps.to_hex(bar.get_facecolor()).upper() == ps.lighten("#00468B")
+    assert ps.to_hex(bar.get_edgecolor()).upper() == "#00468B"
+    no_fail(ps.check_figure(fig))
+    ps.plt.close(fig)
+
+
 # ---------------------------------------------------------------- axis styles
 
 @test
