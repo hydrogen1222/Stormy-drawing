@@ -259,11 +259,12 @@ def paired_bars_reject_bad_input():
 
 @test
 def paired_bars_crowding_is_caught():
-    """Five pairs on the 8 cm canvas: a value over a short bar cannot sit next to its
-    taller partner, and the check must say so instead of passing it."""
+    """Seven pairs on the 8 cm canvas: a value over a short bar cannot sit next to its
+    taller partner, and the check must say so instead of passing it. (Five pairs are
+    borderline: they fit with Arial and some data, not with others.)"""
     fig, ax = ps.new_figure(right_axis=True)
-    ps.paired_bars(ax, list("12345"), [-0.92, -0.41, -0.18, -0.30, -0.35],
-                   [1.95, 2.05, 2.20, 2.10, 2.08], *PAIR_ARGS, picture_room=0.4)
+    ps.paired_bars(ax, list("1234567"), [-0.92, -0.41, -0.18, -0.30, -0.35, -0.22, -0.27],
+                   [1.95, 2.05, 2.20, 2.10, 2.08, 2.15, 2.12], *PAIR_ARGS, picture_room=0.4)
     assert any(c.startswith("FAIL overlap") for c in ps.check_figure(fig))
     ps.plt.close(fig)
 
