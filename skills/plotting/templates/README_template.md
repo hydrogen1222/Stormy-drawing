@@ -34,6 +34,7 @@
 - 坐标范围及理由：
 - 颜色：来自 `figures/_style/colors.json`
 - 色调模式：normal 和 soft 两份都在 `output/` 里；用户选用：（待用户选定后填 normal 或 soft，并把 `plot.py` 里的 `MODES` 改成只画选定的那一个，重画时另一份自动删掉）
+- 轴样式（图框和刻度线的粗细、颜色）：black_1.0pt（默认）；用户换了就写在这里，并改 `plot.py` 里的 `AXIS`，同一篇论文统一
 
 ## 自查结果
 

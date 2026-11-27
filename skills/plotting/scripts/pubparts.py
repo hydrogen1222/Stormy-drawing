@@ -275,8 +275,10 @@ def colorbar(vmin: float, vmax: float, title: str, cmap="turbo", orientation: st
                           orientation=orientation, extend=extend, ticks=tick_values,
                           format=formatter)
         cb.set_label(title, fontsize=ps.LABEL_PT)
-        cb.outline.set_linewidth(ps.FRAME_LW)
-        cb.ax.tick_params(direction="out", width=ps.FRAME_LW, length=ps.MAJOR_LEN)
+        _, axis_lw, axis_color = ps.current_axis()          # same frame as the figures (axis style)
+        cb.outline.set_linewidth(axis_lw)
+        cb.outline.set_edgecolor(axis_color)
+        cb.ax.tick_params(direction="out", width=axis_lw, length=ps.MAJOR_LEN, color=axis_color)
         cb.ax.minorticks_off()
         fig._pubstyle_part_name = "colorbar"
         return fig, cax

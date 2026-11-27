@@ -38,6 +38,11 @@ if _todo:
 # that one here, e.g. MODES = ("soft",), and write the choice into README.md.
 MODES = ("normal", "soft")
 
+# frame and tick marks: width and colour. Presets (pubstyle.AXIS_STYLES): "black_1.0pt" (default),
+# "black_0.75pt", "black_1.5pt", "charcoal_1.0pt", "gray_0.75pt", "navy_1.0pt"; or your own, e.g.
+# AXIS = dict(lw=1.2, color="#333333"). Text stays black. One axis style for every figure of a paper.
+AXIS = "black_1.0pt"
+
 # ---- data: files in data/ only, never paths into calculation folders
 data = np.loadtxt(HERE / "data" / SETTINGS["data_file"], comments="#", encoding="utf-8")
 x = data[:, 0]          # column 1
@@ -60,4 +65,4 @@ def draw():
 
 # writes output/<folder name>_<mode>.png and .pdf for every mode in MODES, plus output/checks.txt;
 # a figure without FAIL is also copied to figures/_preview/
-ps.save_modes(draw, HERE.name, HERE, MODES)
+ps.save_modes(draw, HERE.name, HERE, MODES, axis=AXIS)
