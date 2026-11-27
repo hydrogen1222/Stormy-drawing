@@ -283,6 +283,73 @@ def place_legend_raises_a_downward_axis_the_right_way():
     ps.plt.close(fig)
 
 
+# ---------------------------------------------------------------- axis styles
+
+@test
+def axis_presets_resolve_and_bad_values_raise():
+    for name, (lw, color) in ps.AXIS_STYLES.items():
+        assert ps.resolve_axis(name) == (name, lw, color)
+        assert ps.AXIS_LW_RANGE[0] <= lw <= ps.AXIS_LW_RANGE[1]
+        assert ps._to_lab(color)[0] <= ps.AXIS_MAX_LIGHTNESS, name
+    assert ps.resolve_axis(None) == ("black_1.0pt", 1.0, "#000000")
+    assert ps.resolve_axis(dict(lw=1.2, color="#333")) == ("custom (1.2 pt, #333333)", 1.2, "#333333")
+    raises(ValueError, ps.resolve_axis, "grey_1pt", match="unknown axis style")
+    raises(ValueError, ps.resolve_axis, dict(lw=3, color="k"), match="outside")
+    raises(ValueError, ps.resolve_axis, dict(lw=1, color="#DDDDDD"), match="too light")
+    raises(ValueError, ps.resolve_axis, dict(lw=1, color="notacolour"), match="not a colour")
+    raises(ValueError, ps.resolve_axis, dict(width=1, color="k"), match="dict")
+
+
+@test
+def axis_style_reaches_frame_ticks_and_colorbar():
+    try:
+        ps.apply(axis="gray_0.75pt")
+        fig, ax = ps.new_figure(colorbar=True)
+        im = ax.imshow(np.arange(12.0).reshape(3, 4), extent=(0, 4, 0, 3), cmap="turbo")
+        ax.set_xlabel(r"$x$ (Å)")
+        ax.set_ylabel(r"$y$ (Å)")
+        cb = ps.add_colorbar(fig, ax, im, "ELF")
+        fig.canvas.draw()
+        for sp in ax.spines.values():
+            assert sp.get_linewidth() == 0.75 and ps.to_hex(sp.get_edgecolor()).upper() == "#595959"
+        tick = ax.yaxis.get_major_ticks()[0].tick1line
+        assert tick.get_markeredgewidth() == 0.75 and ps.to_hex(tick.get_markeredgecolor()).upper() == "#595959"
+        assert cb.outline.get_linewidth() == 0.75
+        assert ps.to_hex(ax.yaxis.get_ticklabels()[0].get_color()) == "#000000"   # text stays black
+        checks = ps.check_figure(fig)
+        no_fail(checks)
+        assert any("axis gray_0.75pt" in c for c in checks), checks
+        # a frame side drawn differently from the chosen style is caught
+        ax.spines["left"].set_color("#FF0000")
+        bad = ps.check_figure(fig)
+        assert any(c.startswith("FAIL axes") and "#595959" in c for c in bad), bad
+        ps.plt.close(fig)
+    finally:
+        ps.apply()
+    assert ps.current_axis() == ("black_1.0pt", 1.0, "#000000")
+
+
+@test
+def save_modes_draws_every_mode_with_the_axis_style():
+    folder = TMP / "axis_modes" / "001_axis"
+    folder.mkdir(parents=True)
+
+    def draw():
+        fig, ax = ps.new_figure()
+        ax.plot([0, 1, 2], [0, 1, 0.5], color="#00468B")
+        ps.nice_limits(ax, 1.0)
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        return fig
+    res = ps.save_modes(draw, folder.name, folder, axis=dict(lw=1.25, color="#1F2D4A"))
+    for mode, checks in res.items():
+        no_fail(checks)
+        assert any("axis custom (1.25 pt, #1F2D4A)" in c for c in checks), checks
+    assert ps.current_axis()[0] == "black_1.0pt"            # back to the default afterwards
+    raises(ValueError, ps.save_modes, draw, folder.name, folder, axis="pink_9pt", match="unknown")
+    assert (folder / "output" / "001_axis_normal.png").exists()   # a bad style deletes nothing
+
+
 # ---------------------------------------------------------------- the checker
 
 def _good_figure():

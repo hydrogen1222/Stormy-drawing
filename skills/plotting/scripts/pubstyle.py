@@ -79,7 +79,10 @@ for _stream in (sys.stdout, sys.stderr):
 #          adsorption energy and distance, with room left for pasted structure pictures),
 #          label_bar(), new_figure(right_axis=True); place_legend() raises a downward
 #          axis the right way. Existing functions draw as before.
-STYLE_VERSION = "0.11.0"
+#   0.12.0: axis styles: width and colour of the frame and tick marks are chosen per figure
+#          (AXIS in plot.py, save_modes(axis=...), presets in AXIS_STYLES); the check compares
+#          the frame with the chosen style. The default (1.0 pt black) draws as before.
+STYLE_VERSION = "0.12.0"
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
@@ -133,7 +136,7 @@ TICK_PT = 6       # tick numbers
 LEGEND_PT = 6     # legend text
 ANNOT_PT = 6      # text inside the frame (region names, values, point labels)
 DATA_LW = 1.0     # every line 1.0 pt: Nature allows at most 1 pt, Nat. Commun. at least 1 pt
-FRAME_LW = 1.0
+FRAME_LW = 1.0    # default frame and tick-mark width; the figure's axis style (AXIS_STYLES) decides
 MAJOR_LEN = 3.2
 MINOR_LEN = 1.8
 MARKER_SIZE = 4.5
@@ -323,7 +326,57 @@ MODES = ("normal", "soft")
 SOFT_CHROMA = 0.60       # soft mode keeps 60 % of each colour's chroma, same lightness
 SOFT_ALPHA_TOP = 0.38    # gradient fills start this strong at the curve (normal: 0.55)
 
-_STATE = {"font": None, "standin": False, "mode": "normal"}
+_STATE = {"font": None, "standin": False, "mode": "normal",
+          "axis": ("black_1.0pt", FRAME_LW, "#000000")}
+
+# Axis styles: width (pt) and colour of the frame and the tick marks. Text (tick
+# numbers, axis titles) stays black whatever the axis colour. One style for every
+# figure of a paper, like the colour mode. Set it in plot.py: AXIS = "gray_0.75pt",
+# or your own: AXIS = dict(lw=1.2, color="#333333").
+AXIS_STYLES = {
+    "black_1.0pt": (1.0, "#000000"),      # default: Nature at most 1 pt, Nat. Commun. at least 1 pt
+    "black_0.75pt": (0.75, "#000000"),    # thinner classic frame (below Nat. Commun.'s 1 pt)
+    "black_1.5pt": (1.5, "#000000"),      # Origin-like heavy frame for slides and posters (over Nature's 1 pt)
+    "charcoal_1.0pt": (1.0, "#333333"),   # a little softer than black, still crisp
+    "gray_0.75pt": (0.75, "#595959"),     # light frame, goes with the soft colour mode
+    "navy_1.0pt": (1.0, "#1F2D4A"),       # dark navy, goes with the palette's navy
+}
+DEFAULT_AXIS = "black_1.0pt"
+AXIS_LW_RANGE = (0.5, 2.0)    # pt
+AXIS_MAX_LIGHTNESS = 55.0     # CIE L*; a lighter frame fades into the white page
+
+
+def resolve_axis(axis=None) -> tuple[str, float, str]:
+    """(name, width in pt, hex colour) of an axis style: None (the default), a preset
+    name from AXIS_STYLES, or dict(lw=..., color=...) for your own."""
+    if axis is None:
+        axis = DEFAULT_AXIS
+    if isinstance(axis, str):
+        if axis not in AXIS_STYLES:
+            raise ValueError(f"unknown axis style {axis!r}; presets: {', '.join(AXIS_STYLES)}, "
+                             "or your own as dict(lw=1.2, color='#333333')")
+        lw, color = AXIS_STYLES[axis]
+        return axis, lw, color
+    if not isinstance(axis, dict) or set(axis) != {"lw", "color"}:
+        raise ValueError(f"axis must be a preset name or dict(lw=..., color=...), got {axis!r}")
+    lw = float(axis["lw"])
+    lo, hi = AXIS_LW_RANGE
+    if not lo <= lw <= hi:
+        raise ValueError(f"axis width {lw:g} pt is outside {lo:g} to {hi:g} pt")
+    try:
+        color = to_hex(axis["color"]).upper()
+    except ValueError:
+        raise ValueError(f"axis colour {axis['color']!r} is not a colour matplotlib knows") from None
+    lightness = float(_to_lab(color)[0])
+    if lightness > AXIS_MAX_LIGHTNESS:
+        raise ValueError(f"axis colour {color} is too light (L* {lightness:.0f}, at most "
+                         f"{AXIS_MAX_LIGHTNESS:g}); the frame would fade into the page")
+    return f"custom ({lw:g} pt, {color})", lw, color
+
+
+def current_axis() -> tuple[str, float, str]:
+    """(name, width in pt, hex colour) of the axis style in use."""
+    return _STATE["axis"]
 
 
 def _to_lab(hexc: str) -> np.ndarray:
@@ -394,15 +447,18 @@ def _require_real_faces(font: str) -> None:
                 f"matplotlib's font cache.")
 
 
-def apply(mode: str = "normal") -> None:
+def apply(mode: str = "normal", axis=None) -> None:
     """Install the style. mode="normal" (default): the palette as it is.
     mode="soft": same hues and lightness at 60 % chroma and lighter gradient fills,
-    for a calm look; use it only when the user asks, and keep one mode per paper."""
+    for a calm look; use it only when the user asks, and keep one mode per paper.
+    axis: width and colour of the frame and tick marks, a preset name from
+    AXIS_STYLES or dict(lw=..., color=...); None = DEFAULT_AXIS (1.0 pt black)."""
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+    axis_name, axis_lw, axis_color = resolve_axis(axis)
     font, standin = _pick_font()
     _require_real_faces(font)
-    _STATE.update(font=font, standin=standin, mode=mode)
+    _STATE.update(font=font, standin=standin, mode=mode, axis=(axis_name, axis_lw, axis_color))
     mpl.rcParams.update({
         "font.family": "sans-serif", "font.sans-serif": [font],
         "font.weight": "bold", "axes.labelweight": "bold",
@@ -415,13 +471,16 @@ def apply(mode: str = "normal") -> None:
         "mathtext.it": f"{font}:italic:bold", "mathtext.sf": f"{font}:bold",
         "mathtext.cal": f"{font}:bold",
         # Origin-like: closed frame, ticks out, major + minor, left/bottom only
-        "axes.linewidth": FRAME_LW, "axes.grid": False,
+        "axes.linewidth": axis_lw, "axes.grid": False, "axes.edgecolor": axis_color,
+        "xtick.color": axis_color, "ytick.color": axis_color,          # tick marks
+        "xtick.labelcolor": "black", "ytick.labelcolor": "black",      # text stays black
+        "axes.labelcolor": "black",
         "xtick.direction": "out", "ytick.direction": "out",
         "xtick.top": False, "ytick.right": False,
         "xtick.major.size": MAJOR_LEN, "ytick.major.size": MAJOR_LEN,
         "xtick.minor.size": MINOR_LEN, "ytick.minor.size": MINOR_LEN,
-        "xtick.major.width": FRAME_LW, "ytick.major.width": FRAME_LW,
-        "xtick.minor.width": FRAME_LW, "ytick.minor.width": FRAME_LW,
+        "xtick.major.width": axis_lw, "ytick.major.width": axis_lw,
+        "xtick.minor.width": axis_lw, "ytick.minor.width": axis_lw,
         "xtick.minor.visible": True, "ytick.minor.visible": True,
         "lines.linewidth": DATA_LW, "lines.markersize": MARKER_SIZE,
         "lines.markeredgewidth": DATA_LW,
@@ -472,8 +531,10 @@ def add_colorbar(fig, ax, mappable, label: str):
     cax._pubstyle_colorbar = True          # lets check_figure tell it from the main frame
     cb = fig.colorbar(mappable, cax=cax)
     cb.set_label(label, fontsize=LABEL_PT)
-    cb.outline.set_linewidth(FRAME_LW)
-    cb.ax.tick_params(direction="out", width=FRAME_LW, length=MAJOR_LEN)
+    _, axis_lw, axis_color = _STATE["axis"]
+    cb.outline.set_linewidth(axis_lw)
+    cb.outline.set_edgecolor(axis_color)
+    cb.ax.tick_params(direction="out", width=axis_lw, length=MAJOR_LEN, color=axis_color)
     cb.ax.minorticks_off()
     return cb
 
@@ -1007,7 +1068,7 @@ def paired_bars(ax, categories, left, right, left_title: str, right_title: str,
     for xpos, heights, color in ((xs - off, L, left_color), (xs + off, R / scale, right_color)):
         if gradient:
             cont = ax.bar(xpos, heights, width=width, color="none", edgecolor=color,
-                          lw=FRAME_LW, zorder=2)
+                          lw=DATA_LW, zorder=2)
             img = np.ones((256, 1, 4))
             img[..., :3] = to_rgb(color)
             img[..., 3] = np.linspace(0.12, alpha_top, 256)[:, None]   # pale base, strong tip
@@ -1018,7 +1079,7 @@ def paired_bars(ax, categories, left, right, left_title: str, right_title: str,
                 im.set_clip_path(bar)
         else:
             cont = ax.bar(xpos, heights, width=width, color=color, edgecolor=edge,
-                          lw=FRAME_LW, zorder=2)
+                          lw=DATA_LW, zorder=2)
         rects.append(list(cont.patches))
 
     ax.set_xticks(xs, cats)
@@ -1040,7 +1101,7 @@ def paired_bars(ax, categories, left, right, left_title: str, right_title: str,
     if legend:
         from matplotlib.patches import Patch
         handles = [Patch(facecolor=to_rgb(c) + ((alpha_top,) if gradient else (1.0,)),
-                         edgecolor=c if gradient else edge, lw=FRAME_LW)
+                         edgecolor=c if gradient else edge, lw=DATA_LW)
                    for c in (left_color, right_color)]
         place_legend(ax, handles=handles, labels=[left_name, right_name], ncols=(2, 1),
                      locs=("upper center", "upper left", "upper right")
@@ -1470,7 +1531,7 @@ def plot_bands(ax, bands: Bands, ylim=None, mark_gap: bool = True):
         for b in range(bands.energy.shape[2]):
             ax.plot(bands.x, bands.energy[s, :, b], color="0.15", lw=DATA_LW, ls=styles[s])
     for t in bands.ticks[1:-1]:
-        ax.axvline(t, color="0.6", lw=FRAME_LW, zorder=0.4, gid="reference")
+        ax.axvline(t, color="0.6", lw=DATA_LW, zorder=0.4, gid="reference")
     ax.axhline(0, **REFERENCE_LINE)
     ax.set_xlim(bands.ticks[0], bands.ticks[-1])
     ax.set_xticks(bands.ticks, bands.labels)
@@ -1837,6 +1898,7 @@ def _audit_style(fig) -> dict[str, list[str]]:
                 bad["weight"].append(f"formulas ({key}): {why} (fake bold)")
 
     children = {id(c) for ax in fig.axes for c in ax.child_axes}
+    axis_name, axis_lw, axis_color = _STATE["axis"]
     for ax in _all_axes(fig):
         is_colorbar = getattr(ax, "_pubstyle_colorbar", False)
         for axis, nm in ((ax.xaxis, "x"), (ax.yaxis, "y")):
@@ -1854,9 +1916,12 @@ def _audit_style(fig) -> dict[str, list[str]]:
                     mark = tk.tick1line if tk.tick1line.get_visible() else tk.tick2line
                     if not mark.get_visible():
                         continue
-                    if abs(mark.get_markeredgewidth() - FRAME_LW) > 0.01:
-                        bad["axes"].append(f"{nm} {which} tick width is "
-                                           f"{mark.get_markeredgewidth():g} pt, must be {FRAME_LW:g} pt")
+                    if abs(mark.get_markeredgewidth() - axis_lw) > 0.01:
+                        bad["axes"].append(f"{nm} {which} tick width is {mark.get_markeredgewidth():g} "
+                                           f"pt, must be {axis_lw:g} pt (axis style {axis_name})")
+                    if to_hex(mark.get_markeredgecolor()).upper() != axis_color:
+                        bad["axes"].append(f"{nm} {which} ticks are {to_hex(mark.get_markeredgecolor())}, "
+                                           f"must be {axis_color} (axis style {axis_name})")
                     if abs(mark.get_markersize() - want_len) > 0.01:
                         bad["axes"].append(f"{nm} {which} tick length is "
                                            f"{mark.get_markersize():g} pt, must be {want_len:g} pt")
@@ -1867,8 +1932,12 @@ def _audit_style(fig) -> dict[str, list[str]]:
             for side, sp in ax.spines.items():
                 if not sp.get_visible():
                     bad["axes"].append(f"frame side '{side}' is hidden (the frame must be closed)")
-                elif abs(sp.get_linewidth() - FRAME_LW) > 0.01:
-                    bad["axes"].append(f"frame side '{side}' is {sp.get_linewidth():g} pt, must be {FRAME_LW:g} pt")
+                elif abs(sp.get_linewidth() - axis_lw) > 0.01:
+                    bad["axes"].append(f"frame side '{side}' is {sp.get_linewidth():g} pt, must be "
+                                       f"{axis_lw:g} pt (axis style {axis_name})")
+                elif to_hex(sp.get_edgecolor()).upper() != axis_color:
+                    bad["axes"].append(f"frame side '{side}' is {to_hex(sp.get_edgecolor())}, must be "
+                                       f"{axis_color} (axis style {axis_name})")
         for t in ax.texts:
             text(t, ANNOT_PT, "text")
         leg = ax.get_legend()
@@ -1913,7 +1982,8 @@ def check_figure(fig) -> list[str]:
     font = _STATE["font"]
     fig.canvas.draw()                                # tick labels exist only after a draw
     audit = _audit_style(fig)
-    out.append(f"NOTE style: pubstyle {STYLE_VERSION}, colour mode {_STATE['mode']}")
+    out.append(f"NOTE style: pubstyle {STYLE_VERSION}, colour mode {_STATE['mode']}, "
+               f"axis {_STATE['axis'][0]}")
     if any(getattr(ax, "_pubstyle_part", False) for ax in fig.axes):
         out.append("NOTE part: free layout (pubparts); fonts, sizes, line widths and the canvas "
                    "edge are checked, label overlap is not")
@@ -1931,7 +2001,8 @@ def check_figure(fig) -> list[str]:
     out.append("FAIL line width: " + _fmt_problems(audit["line"]) if audit["line"]
                else f"PASS line width: all lines are {DATA_LW:g} pt")
     out.append("FAIL axes: " + _fmt_problems(audit["axes"]) if audit["axes"]
-               else "PASS axes: closed frame, ticks out, no grid, tick sizes as specified")
+               else f"PASS axes: closed frame and tick marks {_STATE['axis'][1]:g} pt "
+                    f"{_STATE['axis'][2]}, ticks out, no grid, tick sizes as specified")
 
     bad = []
     for t, s in _texts(fig):
@@ -2157,7 +2228,7 @@ def publish_preview(folder: str | Path, pngs, passed: bool = True) -> list[Path]
 
 
 def save_modes(draw, name: str, folder: str | Path = ".",
-               modes: tuple[str, ...] = MODES, formats=None) -> dict[str, list[str]]:
+               modes: tuple[str, ...] = MODES, formats=None, axis=None) -> dict[str, list[str]]:
     """Draw and save one figure in every colour mode, tidily:
 
         <folder>/output/<name>_normal.png, <name>_normal.pdf
@@ -2167,17 +2238,19 @@ def save_modes(draw, name: str, folder: str | Path = ".",
 
     and, when no check FAILed, the PNGs into <figure root>/_preview/.
     draw() builds and returns a NEW figure (ps.new_figure inside it, colours from a
-    ColorRegistry created inside it); it is called once per mode, after apply(mode).
-    Returns {mode: checks}. The style is set back to "normal" afterwards."""
+    ColorRegistry created inside it); it is called once per mode, after apply(mode, axis).
+    axis: the axis style (preset name or dict(lw=..., color=...)), see AXIS_STYLES.
+    Returns {mode: checks}. The style is set back to "normal" and the default axis afterwards."""
     modes = tuple(modes)
     if not modes or any(m not in MODES for m in modes) or len(set(modes)) != len(modes):
         raise ValueError(f"modes must be a non-empty selection of {MODES}, got {modes!r}")
     formats = _formats(formats)
+    resolve_axis(axis)                             # a bad axis style fails before anything is deleted
     out = prepare_output(folder, name)
     results = {}
     try:
         for mode in modes:
-            apply(mode=mode)
+            apply(mode=mode, axis=axis)
             fig = draw()
             if not isinstance(fig, mpl.figure.Figure):
                 raise TypeError("draw() must return the figure it built (return fig)")

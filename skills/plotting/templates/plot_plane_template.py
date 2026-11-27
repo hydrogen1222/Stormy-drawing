@@ -34,6 +34,10 @@ WINDOW = None          # (width, height) in Å, e.g. (6.5, 6.5): show exactly th
                        # exported plane, so every figure of a paper has the same Å per cm. None = whole plane
 IMAGE_PX = 1500        # pixels along the longer side of the picture kept in PDF/SVG/TIFF (see below)
 MODES = ("normal", "soft")   # once the user has chosen, keep only that one (see README.md)
+# frame and tick marks: width and colour. Presets (pubstyle.AXIS_STYLES): "black_1.0pt" (default),
+# "black_0.75pt", "black_1.5pt", "charcoal_1.0pt", "gray_0.75pt", "navy_1.0pt"; or your own, e.g.
+# AXIS = dict(lw=1.2, color="#333333"). Text stays black. One axis style for every figure of a paper.
+AXIS = "black_1.0pt"
 
 for name in (PLANE_FILE, ATOMS_FILE):
     if not (HERE / "data" / name).exists():
@@ -114,4 +118,4 @@ def draw():
     return fig
 
 
-ps.save_modes(draw, HERE.name, HERE, MODES)
+ps.save_modes(draw, HERE.name, HERE, MODES, axis=AXIS)
