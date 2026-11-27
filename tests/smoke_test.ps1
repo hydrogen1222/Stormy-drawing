@@ -85,8 +85,8 @@ try {
     if ($log -match "FAIL") { Write-Host $log; Fail "a demo figure failed its checks" }
     foreach ($mode in @("normal", "soft")) {
         $dir = P @($demo, $mode)
-        if ((Get-ChildItem -LiteralPath $dir -Recurse -Filter "*.pdf").Count -ne 12) { Fail "expected 12 $mode demo figures" }
-        if ((Get-ChildItem -LiteralPath $dir -Recurse -Filter "*.tif").Count -ne 12) { Fail "expected 12 $mode TIFF files" }
+        if ((Get-ChildItem -LiteralPath $dir -Recurse -Filter "*.pdf").Count -ne 13) { Fail "expected 13 $mode demo figures" }
+        if ((Get-ChildItem -LiteralPath $dir -Recurse -Filter "*.tif").Count -ne 13) { Fail "expected 13 $mode TIFF files" }
     }
     $tifCheck = "import sys, glob`nfrom PIL import Image`nfor f in glob.glob(sys.argv[1] + '/*/*/*.tif'):`n    im = Image.open(f)`n    assert im.mode == 'RGB' and im.info.get('compression') == 'tiff_lzw', f`n    assert round(im.info['dpi'][0]) == 1200, f"
     & $Py -c $tifCheck $demo
@@ -102,7 +102,7 @@ try {
         if ($nparts -lt 15 -or $npdf -ne $nparts) { Fail "expected one PDF in each of the $mode part folders (at least 15)" }
     }
     if (Test-Path (P @($skill, "scripts", "colors.json"))) { Fail "a demo wrote colors.json into the skill" }
-    Ok "init_figure, twelve demo figures and every demo part in both colour modes"
+    Ok "init_figure, thirteen demo figures and every demo part in both colour modes"
 
     # 6b. diagrams (Typst + fletcher), when the typst package is installed
     & $Py -c "import typst" 2>$null
