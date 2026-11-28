@@ -82,7 +82,12 @@ for _stream in (sys.stdout, sys.stderr):
 #   0.12.0: axis styles: width and colour of the frame and tick marks are chosen per figure
 #          (AXIS in plot.py, save_modes(axis=...), presets in AXIS_STYLES); the check compares
 #          the frame with the chosen style. The default (1.0 pt black) draws as before.
-STYLE_VERSION = "0.12.0"
+#   0.13.0: grouped_bars() (several quantities side by side per category, each bar with
+#          its value, e.g. total, dispersion and non-dispersion adsorption energy);
+#          stacked_bars() (a total split into stacked parts); bar fills "solid", "pale"
+#          (light tint, outline in the colour) and "gradient" for all three bar helpers
+#          and paired_bars (fill=...); lighten(). Existing functions draw as before.
+STYLE_VERSION = "0.13.0"
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent
@@ -1022,11 +1027,189 @@ def _nice_top(m: float, headroom: float, room: float, max_ticks: int = 6):
     return math.ceil(need / step - 1e-9) * step, step
 
 
+# Bar fills: "solid" = the colour with a dark outline (default); "pale" = a light tint
+# of the colour with an outline in the colour itself, the low-saturation look many
+# papers use; "gradient" = from the colour at the bar's end to pale at its base, also
+# outlined in the colour. Combine with the soft colour mode for the calmest look.
+BAR_FILLS = ("solid", "pale", "gradient")
+PALE_KEEP = 0.35          # "pale" keeps 35 % of the colour, the rest is white
+BAR_EDGE = "0.2"          # outline of "solid" bars
+
+
+def lighten(hexc: str, keep: float = PALE_KEEP) -> str:
+    """Mix a colour with white: keep=1 gives the colour, keep=0 white."""
+    if not 0.0 <= keep <= 1.0:
+        raise ValueError(f"lighten: keep must be 0 to 1, got {keep!r}")
+    rgb = np.asarray(to_rgb(hexc))
+    return to_hex(1 - keep * (1 - rgb)).upper()
+
+
+def _check_fill(fill: str) -> None:
+    if fill not in BAR_FILLS:
+        raise ValueError(f"fill must be one of {BAR_FILLS}, got {fill!r}")
+
+
+def _draw_bars(ax, xpos, heights, color, fill: str, width: float, bottom=0.0, zorder: float = 2):
+    """One series of bars in one of BAR_FILLS; returns the BarContainer."""
+    _check_fill(fill)
+    if fill == "solid":
+        return ax.bar(xpos, heights, width=width, bottom=bottom, color=color,
+                      edgecolor=BAR_EDGE, lw=DATA_LW, zorder=zorder)
+    if fill == "pale":
+        return ax.bar(xpos, heights, width=width, bottom=bottom, color=lighten(color),
+                      edgecolor=color, lw=DATA_LW, zorder=zorder)
+    alpha_top = SOFT_ALPHA_TOP if _STATE["mode"] == "soft" else 0.55
+    cont = ax.bar(xpos, heights, width=width, bottom=bottom, color="none",
+                  edgecolor=color, lw=DATA_LW, zorder=zorder)
+    img = np.ones((256, 1, 4))
+    img[..., :3] = to_rgb(color)
+    img[..., 3] = np.linspace(0.12, alpha_top, 256)[:, None]     # pale base, strong end
+    for bar in cont.patches:
+        x0, y0, h = bar.get_x(), bar.get_y(), bar.get_height()
+        if h == 0:
+            continue
+        im = ax.imshow(img, extent=(x0, x0 + bar.get_width(), y0, y0 + h), origin="lower",
+                       aspect="auto", zorder=zorder - 0.1, interpolation="bilinear")
+        im.set_clip_path(bar)
+    return cont
+
+
+def _fill_handle(color: str, fill: str):
+    """Legend patch that looks like a bar drawn with this fill."""
+    from matplotlib.patches import Patch
+    if fill == "solid":
+        return Patch(facecolor=color, edgecolor=BAR_EDGE, lw=DATA_LW)
+    if fill == "pale":
+        return Patch(facecolor=lighten(color), edgecolor=color, lw=DATA_LW)
+    alpha_top = SOFT_ALPHA_TOP if _STATE["mode"] == "soft" else 0.55
+    return Patch(facecolor=to_rgb(color) + (alpha_top,), edgecolor=color, lw=DATA_LW)
+
+
+def stacked_bars(ax, categories, parts: dict, colors: dict, decimals: int = 2,
+                 fill: str = "solid", width: float = 0.35, headroom: float = 0.10,
+                 legend: bool = True, max_ticks: int = 6):
+    """One bar per category, made of stacked parts that add up to a total: e.g. an
+    adsorption energy split into its dispersion part and the rest.
+
+    parts: {name: values}, the bottom part first, one value per category.
+    colors: {name: colour}, from the colour registry, e.g. reg.color(name, "series").
+    - Every value of every part has the same sign; parts of opposite signs cannot
+      be stacked (raises: draw them side by side instead). Negative totals (binding
+      energies) are drawn upwards on a downward axis, 0 at the bottom.
+    - The axis ends at the labeled tick above the largest total + headroom. Each
+      total is written at the end of its bar (ps.label_bar, `decimals` places); the
+      values of the parts are not written inside the bars: put them in the README
+      and the caption.
+    - fill: "solid", "pale" or "gradient" (see BAR_FILLS).
+    - legend: parts listed top to bottom in the order they are stacked (top part first).
+    Returns {name: BarContainer}. Set the axis titles on ax."""
+    _check_fill(fill)
+    cats = [str(c) for c in categories]
+    if not parts or set(parts) != set(colors):
+        raise ValueError("stacked_bars: parts and colors need the same names, at least one")
+    vals = {k: np.asarray(v, float) for k, v in parts.items()}
+    for k, v in vals.items():
+        if v.shape != (len(cats),):
+            raise ValueError(f"stacked_bars: part {k!r} has {v.size} values for {len(cats)} categories")
+        if not np.all(np.isfinite(v)):
+            raise ValueError(f"stacked_bars: part {k!r} contains NaN or inf")
+    allv = np.concatenate(list(vals.values()))
+    if np.any(allv > 0) and np.any(allv < 0):
+        raise ValueError("stacked_bars: some parts are positive and some negative. Parts of "
+                         "opposite signs cannot be stacked into one bar; draw them side by side")
+    if not np.any(allv):
+        raise ValueError("stacked_bars: every value is zero; there is nothing to draw")
+    sign = -1 if np.any(allv < 0) else 1
+    totals = sum(vals.values())
+    top, step = _nice_top(float(np.abs(totals).max()), headroom, 0.0, max_ticks)
+
+    xs = np.arange(len(cats), dtype=float)
+    bottom = np.zeros(len(cats))
+    out = {}
+    for name, v in vals.items():
+        out[name] = _draw_bars(ax, xs, v, colors[name], fill, width, bottom=bottom.copy())
+        bottom += v
+    ax.set_xticks(xs, cats)
+    ax.xaxis.set_minor_locator(mpl.ticker.NullLocator())
+    ax.set_xlim(-0.6, len(cats) - 0.4)
+    ax.set_ylim(0, sign * top)                      # downward axis when the values are negative
+    _set_ticks(ax.yaxis, step)
+
+    last = list(out.values())[-1]
+    for bar, t in zip(last.patches, totals):
+        label_bar(ax, bar, f"{t:.{decimals}f}".replace("-", "\u2212"))
+    if legend:
+        names = list(vals)[::-1]
+        place_legend(ax, handles=[_fill_handle(colors[n], fill) for n in names], labels=names,
+                     ncols=(1, 2))
+    return out
+
+
+def grouped_bars(ax, categories, series: dict, colors: dict, decimals: int = 2,
+                 fill: str = "solid", group_width: float = 0.75, headroom: float = 0.10,
+                 legend: bool = True, max_ticks: int = 6):
+    """Several quantities of one unit side by side for each category, every bar with
+    its value: e.g. the total adsorption energy next to its dispersion and
+    non-dispersion parts, for (111) and (110). Readers see every number, none has
+    to be added up.
+
+    series: {name: values}, left to right within each group, one value per category.
+    colors: {name: colour}, from the colour registry.
+    - Every value has the same sign (bars that cross zero need a zero line in the
+      middle; raises). Negative values are drawn upwards on a downward axis.
+    - The axis ends at the labeled tick above the largest value + headroom.
+    - fill: "solid", "pale" or "gradient" (see BAR_FILLS).
+    - A value wider than its bar slides aside or FAILs the check: on the 8 cm canvas
+      three series fit about three categories.
+    Returns {name: BarContainer}. Set the axis titles on ax."""
+    _check_fill(fill)
+    cats = [str(c) for c in categories]
+    if not series or set(series) != set(colors):
+        raise ValueError("grouped_bars: series and colors need the same names, at least one")
+    vals = {k: np.asarray(v, float) for k, v in series.items()}
+    for k, v in vals.items():
+        if v.shape != (len(cats),):
+            raise ValueError(f"grouped_bars: series {k!r} has {v.size} values for {len(cats)} categories")
+        if not np.all(np.isfinite(v)):
+            raise ValueError(f"grouped_bars: series {k!r} contains NaN or inf")
+    allv = np.concatenate(list(vals.values()))
+    if np.any(allv > 0) and np.any(allv < 0):
+        raise ValueError("grouped_bars: some values are positive and some negative. Bars that "
+                         "cross zero need a zero line in the middle of the frame, which this "
+                         "layout does not have; draw such data with ax.bar and ps.nice_limits")
+    if not np.any(allv):
+        raise ValueError("grouped_bars: every value is zero; there is nothing to draw")
+    if not 0.3 <= group_width <= 0.9:
+        raise ValueError(f"grouped_bars: group_width is 0.3 to 0.9 of the category spacing, got {group_width!r}")
+    sign = -1 if np.any(allv < 0) else 1
+    top, step = _nice_top(float(np.abs(allv).max()), headroom, 0.0, max_ticks)
+
+    xs = np.arange(len(cats), dtype=float)
+    k = len(vals)
+    width = group_width / k
+    out = {}
+    for i, (name, v) in enumerate(vals.items()):
+        out[name] = _draw_bars(ax, xs + (i - (k - 1) / 2) * width, v, colors[name], fill, width)
+    ax.set_xticks(xs, cats)
+    ax.xaxis.set_minor_locator(mpl.ticker.NullLocator())
+    ax.set_xlim(-0.6, len(cats) - 0.4)
+    ax.set_ylim(0, sign * top)                      # downward axis when the values are negative
+    _set_ticks(ax.yaxis, step)
+    for name, cont in out.items():
+        for bar, v in zip(cont.patches, vals[name]):
+            label_bar(ax, bar, f"{v:.{decimals}f}".replace("-", "−"))
+    if legend:
+        place_legend(ax, handles=[_fill_handle(colors[n], fill) for n in vals], labels=list(vals),
+                     ncols=(k, 1), locs=("upper center", "upper left", "upper right")
+                     + tuple(loc for loc in LEGEND_LOCS if not loc.startswith("upper")))
+    return out
+
+
 def paired_bars(ax, categories, left, right, left_title: str, right_title: str,
                 left_name: str, right_name: str, left_color: str, right_color: str,
                 left_decimals: int = 2, right_decimals: int = 1, picture_room: float = 0.0,
                 headroom: float = 0.10, gradient: bool = False, legend: bool = True,
-                max_ticks: int = 6):
+                max_ticks: int = 6, fill: str | None = None):
     """Two quantities per category as a pair of bars, the first on the left y axis,
     the second on a right y axis: e.g. adsorption energy (eV) and Li-O distance (A)
     for configurations 1..5. Build the figure with ps.new_figure(right_axis=True).
@@ -1039,12 +1222,14 @@ def paired_bars(ax, categories, left, right, left_title: str, right_title: str,
       ps.label_bar; the units are in the axis titles, not repeated on the bars.
     - picture_room: fraction of the frame height kept free at the top, for
       structure pictures pasted in later in an image editor (e.g. 0.4).
-    - gradient=True fills each bar from its colour at the tip to pale at the base
-      (the XPS-style look of ps.gradient_fill); default: solid bars, dark outline.
+    - fill: "solid" (default, dark outline), "pale" or "gradient" (see BAR_FILLS);
+      gradient=True is the older way to ask for fill="gradient".
     - legend=True puts a one-row legend (left_name, right_name) at the top of the
       frame with ps.place_legend; the axis titles stay black like all text.
 
     Returns the right axis (a secondary axis of `ax`). Set the x-axis title on ax."""
+    fill = fill or ("gradient" if gradient else "solid")
+    _check_fill(fill)
     cats = [str(c) for c in categories]
     L, s_l = _one_sign(left, "left")
     R, s_r = _one_sign(right, "right")
@@ -1061,26 +1246,9 @@ def paired_bars(ax, categories, left, right, left_title: str, right_title: str,
     xs = np.arange(len(cats), dtype=float)
     width, gap = 0.32, 0.08
     off = (width + gap) / 2
-    edge = "0.2"
-    if gradient:
-        alpha_top = SOFT_ALPHA_TOP if _STATE["mode"] == "soft" else 0.55
     rects = []
     for xpos, heights, color in ((xs - off, L, left_color), (xs + off, R / scale, right_color)):
-        if gradient:
-            cont = ax.bar(xpos, heights, width=width, color="none", edgecolor=color,
-                          lw=DATA_LW, zorder=2)
-            img = np.ones((256, 1, 4))
-            img[..., :3] = to_rgb(color)
-            img[..., 3] = np.linspace(0.12, alpha_top, 256)[:, None]   # pale base, strong tip
-            for bar in cont.patches:
-                x0, h = bar.get_x(), bar.get_height()
-                im = ax.imshow(img, extent=(x0, x0 + width, 0, h), origin="lower",
-                               aspect="auto", zorder=1.9, interpolation="bilinear")
-                im.set_clip_path(bar)
-        else:
-            cont = ax.bar(xpos, heights, width=width, color=color, edgecolor=edge,
-                          lw=DATA_LW, zorder=2)
-        rects.append(list(cont.patches))
+        rects.append(list(_draw_bars(ax, xpos, heights, color, fill, width).patches))
 
     ax.set_xticks(xs, cats)
     ax.xaxis.set_minor_locator(mpl.ticker.NullLocator())
@@ -1099,10 +1267,7 @@ def paired_bars(ax, categories, left, right, left_title: str, right_title: str,
         label_bar(ax, bar, fmt(v, right_decimals))
 
     if legend:
-        from matplotlib.patches import Patch
-        handles = [Patch(facecolor=to_rgb(c) + ((alpha_top,) if gradient else (1.0,)),
-                         edgecolor=c if gradient else edge, lw=DATA_LW)
-                   for c in (left_color, right_color)]
+        handles = [_fill_handle(c, fill) for c in (left_color, right_color)]
         place_legend(ax, handles=handles, labels=[left_name, right_name], ncols=(2, 1),
                      locs=("upper center", "upper left", "upper right")
                      + tuple(loc for loc in LEGEND_LOCS if not loc.startswith("upper")))

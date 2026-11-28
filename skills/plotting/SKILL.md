@@ -22,6 +22,9 @@ Linux、macOS、Windows 都能用。下文命令里的 `python` 在 Windows 上�
 | 开始画一张新图 | 本页"画一张新图的步骤"，再用 `scripts/init_figure.py` |
 | 画态密度、能带、能垒、径向分布函数、均方位移、阿伦尼乌斯图、二维色图、柱状图 | `references/figure-types.md` 里对应的那一节 |
 | 每个构型两种量并排成对柱子、左右两根纵轴（吸附能 + 距离这类，常在柱子上方贴结构图） | `references/figure-types.md` 的“双纵轴柱状图”一节，用 `ps.paired_bars`，不要自己 `twinx` |
+| 每个类别几种同单位的量并排、每根柱子都标数值（总吸附能和它的各部分） | `references/figure-types.md` 的“分组柱状图”一节，用 `ps.grouped_bars` |
+| 一个总量拆成几部分叠成一根柱子（吸附能 = 色散 + 其余） | `references/figure-types.md` 的“叠加柱状图”一节，用 `ps.stacked_bars` |
+| 用户想要文献里那种低饱和、浅色的柱子 | `fill="pale"` 或 `fill="gradient"`，再配 soft 色调模式；见 `references/figure-types.md` 的“柱状图”一节 |
 | 画晶体结构图 | `references/structures.md` |
 | 画分子或晶体的结构图，用户没指定用哪个软件，或者说“让我看看哪个好看”（**实验性**） | **agent 自己执行** `python <skill>/scripts/init_figure.py <项目根目录> <英文描述名> --structure`，把结构文件（CONTCAR、CIF、xyz）复制进 `data/`（只有分子 SMILES 时设 `plot.py` 里的 `SMILES`），运行生成的 `plot.py`。它用所有装了的包各画一遍（raycast、ase、povray、ovito、jmol、materia、rdkit、typed-smiles），文件名以包名结尾，`*_packages.txt` 写明哪些跑了、哪些因为什么跳过。亲眼看图，按 README 的表写下各包的观感，请用户挑；用户选定后把 `PACKAGES` 和 `MODES` 改成选定的，删掉其余文件。细节和限制见 `references/structures.md` 的“同一个结构画给用户挑”一节 |
 | Multiwfn 平面图（ELF、电子密度的切片，要标出平面上的原子） | **agent 自己执行** `python <skill>/scripts/init_figure.py <项目根目录> <英文描述名> --plane`，用生成的 `plot.py`，不要手写绘图代码。把用户给的 `plane.txt` 和原子列表（`序号 元素 x y z`，Å，序号与 molden 一致；用户没有就从他的结构文件生成）放进 `data/`。用户说“画布大小一致”“几张图字号要对得上”，意思是每厘米对应的 Å 数相同：设同一个 `WINDOW`（如 `(6.5, 6.5)`），不要把坐标轴撑大而留白边。细节见 `references/figure-types.md` 的 Multiwfn 平面图一条 |
@@ -146,6 +149,7 @@ figures/
 - 有顺序的量（温度、浓度、应变）：`ps.ordered_colors(n)`，暖色由浅到深，数值越大颜色越深。同一组图里有第二种有顺序的量时，第二种用 `ramp="cool"`。
 - 有正负的量（差分电荷密度）：`ps.DIVERGING`，蓝—白—红，零点白色，色标范围对称。
 - 范围固定、有物理分界的标量场（ELF，0 到 1）：`cmap="turbo"`（Turbo，VMD 的 Turbo 色标是同一张表），`vmin=0, vmax=1`，同组图色标一致；细节见 `references/figure-types.md` 的二维色图一节。`soft` 模式不改它。
+- 柱子的填充有三种（`ps.BAR_FILLS`）：实心加深色描边（默认）、浅色填充加本色描边（`pale`）、渐变（`gradient`）。由用户选，同一篇文章统一。
 - 文字一律黑色，不用曲线颜色写字。
 
 ## 出图后自查（agent 必须做）

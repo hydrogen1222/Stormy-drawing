@@ -268,6 +268,17 @@ def run(mode: str) -> None:
     ax.set_xlabel("Configuration")
     save(fig, "11_paired_bars_synthetic_data")
 
+    # ---------------------------------------------------------------- stacked bars, pale fill
+    # a total split into two parts of the same sign (dispersion and the rest of an
+    # adsorption energy); only the totals are written on the bars
+    e_ads, e_disp = np.array([-1.9, -2.7]), np.array([-0.2, -0.4])
+    fig, ax = ps.new_figure()
+    ps.stacked_bars(ax, ["(111)", "(110)"], {"Dispersion": e_disp, "Non-dispersion": e_ads - e_disp},
+                    {n: reg.color(n, "series") for n in ("Dispersion", "Non-dispersion")}, fill="pale")
+    ax.set_xlabel("Surface")
+    ax.set_ylabel(r"$E_{\rm ads}$ (eV)")
+    save(fig, "12_stacked_bars_synthetic_data")
+
     # ---------------------------------------------------------------- the check must catch this
     fig, ax = ps.new_figure()
     ax.plot([0, 1], [0, 1], color=reg.color("S"))
