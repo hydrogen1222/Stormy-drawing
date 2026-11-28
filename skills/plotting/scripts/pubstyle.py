@@ -87,7 +87,10 @@ for _stream in (sys.stdout, sys.stderr):
 #          stacked_bars() (a total split into stacked parts); bar fills "solid", "pale"
 #          (light tint, outline in the colour) and "gradient" for all three bar helpers
 #          and paired_bars (fill=...); lighten(). Existing functions draw as before.
-STYLE_VERSION = "0.13.0"
+#   0.14.0: pubparts.element_legend() can draw shaded balls sized by covalent radius with
+#          the symbol under each ball (style="ball", radii="covalent", labels="below"),
+#          the legend of atom colours in papers. The default still draws flat dots.
+STYLE_VERSION = "0.14.0"
 
 CM = 1 / 2.54
 STYLE_DIR = Path(__file__).resolve().parent

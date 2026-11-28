@@ -226,7 +226,7 @@ def draw():
 | 色标条 | `pp.colorbar(vmin, vmax, title, cmap, orientation, length_cm, thickness_cm, ticks, decimals, bands, reverse, midpoint)` | `cmap` 和 `midpoint` 见上；数值范围必须和 VMD 的 Color Scale Data Range 一致（第一个值对应最左端颜色，最后一个值对应最右端，中间线性）；`bands=n` 对应 VMD 的 posterize，`reverse=True` 对应反转。**不随柔和模式变色**，必须和位图保持一致。拼图前取 VMD 图里几个像素和色标条对一下 |
 | 弱相互作用色标条 | `pp.nci_colorbar(method, vmin, vmax, unit, labels, spans, boundaries, bond, header, length_cm)` | IRI / NCI(RDG) / IGMH 的 sign(λ₂)ρ 色标，VMD 的 BGR 配色，照卢天老师的图例画：上方 ρ、λ₂ 两行加 sign(λ₂)ρ 增减箭头，两端标数值和单位，下方三个彩色花括号写相互作用类型，蓝端外虚线箭头标 ρ≫0 的键。`iri`/`nci` 用 IRI 图例的措辞和 −0.04~0.02，`igmh` 用 IGMH 图例的措辞（含纯离子键、"有不可忽略共价性的键"）和 −0.05~0.05。见下方流程 |
 | 等值面图例 | `pp.isosurface_legend([0.002, -0.002], unit=..., title="Isovalue")` | 颜色默认正红负蓝（和 `ps.DIVERGING` 两端一致）；VMD 里用了别的颜色就把 `(值, 十六进制色)` 对传进去 |
-| 元素图例 | `pp.element_legend(["Li", "P", "S", "Cl"])` | 颜色取自登记文件（和曲线图一致，随色调模式变）；要和 VMD 原子颜色一致时用 `colors={"Li": "#..."}`，给定的色号原样使用 |
+| 元素图例 | `pp.element_legend(["Li", "P", "S", "Cl"], colors=, style=, radii=, labels=, scale=)` | 颜色取自登记文件（和曲线图一致，随色调模式变）；要和 VESTA / VMD 原子颜色一致时用 `colors={"Li": "#..."}`，给定的色号原样使用（VESTA：Objects → Properties → Atoms，或用吸管）。默认是平的小圆点；论文里常见的那种带高光的球、按原子大小区分、元素符号在球下面：`style="ball", radii="covalent", labels="below"`。`radii` 也可以给字典 `{"Li": 0.2}`（单位 cm），`scale` 整体放大缩小。球是矢量圆层叠出来的，不是位图 |
 | 坐标轴三角 | `pp.axes_triad(rotation, labels=("a", "b", "c"), vectors=晶格矢量)` | `rotation` 可直接给 VMD 的 `molinfo top get rotate_matrix`（4×4）；非正交晶胞传 `vectors`；朝向观察者的轴按投影画得很短 |
 | 比例尺 | `pp.scale_bar(5, "Å", cm_per_unit)` | `cm_per_unit` = 图放进版面后 1 Å 有多少 cm（量一条已知长度，如晶胞边长，再相除）；条的长度就是这么长 |
 | 区域条 | `pp.region_strip([("Crystal", 15), ("Glass", 15)], axis_label=..., boundary_extra_cm=0.4)` | 只看长度比例；虚线边界可延伸出去穿过相邻的图 |

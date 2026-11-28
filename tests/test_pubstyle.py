@@ -972,6 +972,10 @@ def every_part_passes_the_style_checks():
         "iso": pp.isosurface_legend([0.002, -0.002], unit=r"e $\rm\AA^{\rm -3}$", title="Isovalue"),
         "iso_v": pp.isosurface_legend([0.02, -0.02], orientation="vertical"),
         "elements": pp.element_legend(["Li", "P", "S", "Cl", "Na"], reg=reg, ncols=3),
+        "elements_ball": pp.element_legend(
+            ["O", "C", "H", "Li", "S", "P"], style="ball", radii="covalent", labels="below",
+            colors={"O": "#FF0D0D", "C": "#B07F3F", "H": "#FFCCCC", "Li": "#CC80FF",
+                    "S": "#FFFF30", "P": "#FF8000"}),
         "triad": pp.axes_triad(R, labels=("a", "b", "c")),
         "triad_straight": pp.axes_triad(),
         "scale": pp.scale_bar(5, "Å", 0.35),
@@ -1156,6 +1160,39 @@ def legends_follow_the_colour_mode_but_exact_colors_do_not():
         ps.apply()
     raises(ValueError, pp.element_legend, [])
     raises(ValueError, pp.element_legend, ["Li", "Li_sv"], reg=reg, match="duplicates")
+
+
+@test
+def element_legend_balls_are_sized_by_radius_and_keep_exact_colours():
+    reg = fresh_registry()
+    cols = {"Li": "#CC80FF", "H": "#FFCCCC", "S": "#FFFF30"}
+    f = pp.element_legend(["Li", "H", "S"], colors=cols, style="ball", radii="covalent", labels="below")
+    patches = f.axes[0].patches
+    assert len(patches) % 3 == 0 and len(patches) > 3 * 10         # layered circles, not one disc
+    per = len(patches) // 3
+    size = [patches[i * per].get_radius() for i in range(3)]       # outer circle of each ball
+    assert size[0] > size[2] > size[1], size                       # Li > S > H, like the atoms
+    # the given colour appears in the middle of the shading, unchanged
+    mid = {tuple(np.round(p.get_facecolor()[:3], 3)) for p in patches}
+    assert tuple(np.round(ps.mpl.colors.to_rgb("#CC80FF"), 3)) in mid or any(
+        max(abs(a - b) for a, b in zip(m, ps.mpl.colors.to_rgb("#CC80FF"))) < 0.03 for m in mid)
+    # the symbols sit centred under the balls, on one line
+    texts = [t for t in f.axes[0].texts]
+    assert [t.get_text() for t in texts] == ["Li", "H", "S"]
+    assert len({round(t.get_position()[1], 4) for t in texts}) == 1
+    assert all(t.get_ha() == "center" for t in texts)
+    # equal size by default, scale enlarges, flat is still the default look
+    flat = pp.element_legend(["Li", "H"], colors=cols)
+    assert len(flat.axes[0].patches) == 2
+    big = pp.element_legend(["Li"], colors=cols, style="ball", scale=2)
+    assert abs(big.axes[0].patches[0].get_radius() - 2 * pp.BALL_R_CM) < 1e-9
+    raises(ValueError, pp.element_legend, ["Li"], colors=cols, style="cube", match="style")
+    raises(ValueError, pp.element_legend, ["Li"], colors=cols, labels="above", match="labels")
+    raises(ValueError, pp.element_legend, ["Li"], colors=cols, radii="vdw", match="radii")
+    raises(ValueError, pp.element_legend, ["Xx"], colors={"Xx": "#123456"}, radii="covalent", match="covalent radius")
+    raises(ValueError, pp.element_legend, ["Li", "S"], colors=cols, radii={"Li": 0.2}, match="no entry")
+    raises(ValueError, pp.element_legend, ["Li"], colors=cols, radii={"Li": 2.0}, match="cm")
+    raises(ValueError, pp.element_legend, ["Li"], colors=cols, scale=5, match="scale")
 
 
 @test

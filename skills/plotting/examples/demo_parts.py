@@ -68,6 +68,11 @@ def levels():
         links=[(0, 0, 1, 0), (0, 1, 1, 2)], reg=ps.ColorRegistry(REG))
 
 
+# atom colours of a VESTA-like picture (replace with the colours of YOUR picture:
+# VESTA Objects > Properties > Atoms, or the eyedropper)
+VESTA_LIKE = {"O": "#FF0D0D", "C": "#B07F3F", "H": "#FFCCCC", "Li": "#CC80FF",
+              "S": "#FFFF30", "P": "#FF8000", "Cl": "#1FF01F"}
+
 PARTS = [
     ("01_colorbar_vertical_esp", lambda: pp.colorbar(-0.05, 0.05, "ESP (a.u.)")),
     ("02_colorbar_horizontal_esp", lambda: pp.colorbar(-41, 38, "ESP (kcal/mol)", orientation="horizontal", ticks=11, decimals=0, length_cm=8)),
@@ -79,6 +84,9 @@ PARTS = [
      lambda: pp.isosurface_legend([0.002, -0.002], unit=r"e $\rm\AA^{\rm -3}$", title="Isovalue")),
     ("05_isosurface_legend_vertical", lambda: pp.isosurface_legend([0.02, -0.02], orientation="vertical")),
     ("06_element_legend", lambda: pp.element_legend(["Li", "P", "S", "Cl"], reg=ps.ColorRegistry(REG))),
+    ("06a_element_legend_balls",
+     lambda: pp.element_legend(["O", "C", "H", "Li", "S", "P", "Cl"], style="ball", radii="covalent",
+                               labels="below", colors=VESTA_LIKE)),
     ("07_axes_triad_abc", lambda: pp.axes_triad(view_matrix(), labels=("a", "b", "c"))),
     ("08_scale_bar_5_angstrom", lambda: pp.scale_bar(5, "Å", 0.35)),
     ("09_region_strip_crystal_glass",
