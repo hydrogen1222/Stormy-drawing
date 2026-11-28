@@ -546,16 +546,96 @@ def isosurface_legend(levels, unit: str = "", title: str | None = None,
 
 # ---------------------------------------------------------------- 3. element legend
 
+# Covalent radii (Angstrom, Cordero 2008). Only the *relative* size matters: they scale
+# the legend balls (radii="covalent"), like the atom sizes of a structure picture.
+COVALENT_RADII = {
+    "H": 0.31, "Li": 1.28, "Be": 0.96, "B": 0.84, "C": 0.76, "N": 0.71, "O": 0.66, "F": 0.57,
+    "Na": 1.66, "Mg": 1.41, "Al": 1.21, "Si": 1.11, "P": 1.07, "S": 1.05, "Cl": 1.02,
+    "K": 2.03, "Ca": 1.76, "Ti": 1.60, "Mn": 1.39, "Fe": 1.32, "Co": 1.26, "Ni": 1.24,
+    "Cu": 1.32, "Zn": 1.22, "Ga": 1.22, "Ge": 1.20, "As": 1.19, "Se": 1.20, "Br": 1.20,
+    "Zr": 1.75, "Nb": 1.64, "Sn": 1.39, "Sb": 1.39, "I": 1.39, "La": 2.07, "Ta": 1.70, "W": 1.62,
+}
+LEGEND_STYLES = ("flat", "ball")
+LEGEND_LABELS = ("right", "below")
+BALL_R_CM = 0.15          # radius of every dot when radii is not given
+BALL_CM_PER_ANG = 0.16    # radii="covalent": radius in cm per Angstrom of covalent radius
+BALL_R_RANGE = (0.07, 0.30)
+
+
+def _mix(color, other, t: float) -> tuple:
+    """Colour `t` of the way from `color` to `other` (sRGB), as an rgb tuple."""
+    a, b = np.array(mpl.colors.to_rgb(color)), np.array(mpl.colors.to_rgb(other))
+    return tuple(a + (b - a) * t)
+
+
+def _ball(ax, x: float, y: float, r: float, color, steps: int = 28):
+    """A shaded ball made of vector circles: dark rim, the given colour in the middle,
+    a soft white highlight towards the upper left. No raster image, so it stays sharp
+    and every circle can be recoloured in an editor."""
+    rim = _mix(color, "black", 0.35)
+    ax.add_patch(Circle((x, y), r, fc=rim, ec="none", lw=0, clip_on=False))
+    for i in range(1, steps + 1):
+        s = i / steps
+        c = _mix(rim, color, s / 0.40) if s < 0.40 else _mix(color, "white", 0.85 * (s - 0.40) / 0.60)
+        rad = r * (1 - 0.90 * s)
+        ax.add_patch(Circle((x - 0.30 * r * s, y + 0.34 * r * s), rad, fc=c, ec="none", lw=0,
+                            clip_on=False))
+
+
+def _legend_radii(names, radii, scale: float) -> list:
+    if radii is None:
+        out = [BALL_R_CM] * len(names)
+    elif isinstance(radii, str):
+        if radii != "covalent":
+            raise ValueError("radii must be None, 'covalent' or a dict {element: radius in cm}")
+        missing = [n for n in names if n not in COVALENT_RADII]
+        if missing:
+            raise ValueError(f"no covalent radius for {missing}; give radii={{'{missing[0]}': 0.15, ...}} "
+                             "(radius in cm) for those elements")
+        lo, hi = BALL_R_RANGE
+        out = [min(max(BALL_CM_PER_ANG * COVALENT_RADII[n], lo), hi) for n in names]
+    elif isinstance(radii, dict):
+        missing = [n for n in names if n not in radii]
+        if missing:
+            raise ValueError(f"radii has no entry for {missing}")
+        out = [float(radii[n]) for n in names]
+    else:
+        raise ValueError("radii must be None, 'covalent' or a dict {element: radius in cm}")
+    out = [r * scale for r in out]
+    if not all(0.03 <= r <= 0.6 for r in out):
+        raise ValueError("a legend ball radius is outside 0.03 to 0.6 cm; radii are in cm "
+                         "(not Angstrom), scale shrinks or enlarges them all")
+    return out
+
+
 def element_legend(elements, reg=None, colors: dict | None = None, orientation: str = "horizontal",
-                   ncols: int | None = None):
+                   ncols: int | None = None, style: str = "flat", radii=None,
+                   labels: str = "right", scale: float = 1.0):
     """Coloured dots with element symbols. Colours come from the project's colour
     registry (the same as in the curves) unless given in `colors`, e.g. to match the
-    atom colours of the picture: colors={"Li": "#7B3FA0"} (exact hex, not softened)."""
+    atom colours of the picture: colors={"Li": "#7B3FA0"} (exact hex, not softened).
+
+    style   "flat" (default) plain dots; "ball" shaded balls with a highlight, like the
+            atoms of a VESTA / VMD picture.
+    radii   None = all dots the same size; "covalent" = sized by covalent radius (Li large,
+            H small, like the atoms in the picture); or {element: radius in cm}.
+    labels  "right" (default) symbol beside the dot; "below" symbol centred under it,
+            the dots sit on one line (the look of the legend in many papers).
+    scale   multiplies every radius (0.3 to 3).
+
+    A legend as in a paper:  element_legend(["O", "C", "H", "Li", "S", "P"],
+        colors=VESTA_COLORS, style="ball", radii="covalent", labels="below")"""
     names = [ps.element_symbol(e) for e in elements]
     if not names:
         raise ValueError("elements is empty")
     if len(set(names)) != len(names):
         raise ValueError(f"elements has duplicates: {names}")
+    if style not in LEGEND_STYLES:
+        raise ValueError(f"style must be one of {LEGEND_STYLES}")
+    if labels not in LEGEND_LABELS:
+        raise ValueError(f"labels must be one of {LEGEND_LABELS}")
+    if not 0.3 <= scale <= 3:
+        raise ValueError("scale must be between 0.3 and 3")
     if colors is None:
         reg = reg or ps.ColorRegistry()
     cols = [(colors or {}).get(n) or reg.color(n) for n in names]
@@ -563,14 +643,28 @@ def element_legend(elements, reg=None, colors: dict | None = None, orientation: 
         raise ValueError("orientation must be 'horizontal' or 'vertical'")
     ncols = ncols or (len(names) if orientation == "horizontal" else 1)
     nrows = math.ceil(len(names) / ncols)
-    r, dy = 0.15, 0.5
-    dx = 2 * r + 0.12 + max(_text_cm(n) for n in names) + 0.3
-    fig, ax = new_part(0.15 + ncols * dx - 0.2, nrows * dy + 0.1)
-    for i, (n, c) in enumerate(zip(names, cols)):
+    rs = _legend_radii(names, radii, scale)
+    rmax = max(rs)
+    tw = max(_text_cm(n) for n in names)
+    if labels == "right":
+        dx, dy = 2 * rmax + 0.12 + tw + 0.3, max(0.5, 2 * rmax + 0.1)
+        fig, ax = new_part(0.15 + ncols * dx - 0.2, nrows * dy + 0.1)
+    else:
+        dx, dy = max(2 * rmax, tw) + 0.3, 2 * rmax + 0.45
+        fig, ax = new_part(0.15 + ncols * dx - 0.3 + 0.15, nrows * dy + 0.1)
+    for i, (n, c, r) in enumerate(zip(names, cols, rs)):
         row, col = divmod(i, ncols)
-        x, y = 0.15 + r + col * dx, nrows * dy + 0.05 - dy / 2 - row * dy
-        ax.add_patch(Circle((x, y), r, fc=c, ec=INK, lw=ps.DATA_LW, clip_on=False))
-        label(ax, x + r + 0.12, y, n)
+        top = nrows * dy + 0.05 - row * dy
+        if labels == "right":
+            x, y = 0.15 + rmax + col * dx, top - dy / 2
+            label(ax, x + rmax + 0.12, y, n)
+        else:
+            x, y = 0.15 + (dx - 0.3) / 2 + col * dx, top - 0.05 - rmax
+            label(ax, x, y - rmax - 0.08, n, ha="center", va="top")
+        if style == "ball":
+            _ball(ax, x, y, r, c)
+        else:
+            ax.add_patch(Circle((x, y), r, fc=c, ec=INK, lw=ps.DATA_LW, clip_on=False))
     return fig
 
 
